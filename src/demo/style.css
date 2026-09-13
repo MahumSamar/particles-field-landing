@@ -1,0 +1,135 @@
+:root {
+  --bg: #050706;
+  --ink: #eef2f0;
+  --muted: #7c8a85;
+  --accent: #2ee6a0;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { background: var(--bg); }
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-synthesis-weight: none;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* The canvas sits behind everything, pinned to the viewport. */
+#field {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+#field canvas { display: block; }
+
+#field .pf-fallback {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(60vw, 60vh);
+  transform: translate(-50%, -50%);
+}
+
+#smooth-wrapper { position: relative; z-index: 1; }
+
+.panel {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 1.1rem;
+  max-width: 46rem;
+  padding: 8vh clamp(1.5rem, 6vw, 7rem);
+  pointer-events: none;
+}
+.panel.last { min-height: 130vh; }
+
+/* Alternate sides so the field is never permanently hidden behind type. */
+.panel:nth-child(even) { margin-left: auto; text-align: right; }
+
+.eyebrow {
+  font-size: 0.72rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+h1 {
+  font-size: clamp(2.6rem, 8vw, 5.5rem);
+  font-weight: 300;
+  letter-spacing: -0.035em;
+  line-height: 0.95;
+}
+
+h2 {
+  font-size: clamp(1.7rem, 4vw, 2.9rem);
+  font-weight: 300;
+  letter-spacing: -0.03em;
+}
+
+p {
+  font-size: clamp(0.95rem, 1.3vw, 1.08rem);
+  line-height: 1.65;
+  color: var(--muted);
+  max-width: 34rem;
+  text-wrap: pretty;
+}
+.panel:nth-child(even) p { margin-left: auto; }
+
+.lede { color: #b6c4bf; }
+
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+  color: var(--accent);
+}
+
+.hint {
+  font-size: 0.72rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-top: 2rem;
+}
+
+#stats {
+  position: fixed;
+  left: 1rem;
+  bottom: 1rem;
+  z-index: 3;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.68rem;
+  line-height: 1.7;
+  color: var(--muted);
+  white-space: pre;
+  pointer-events: none;
+  opacity: 0.75;
+}
+
+.lil-gui { --width: 300px; z-index: 4 !important; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hint { display: none; }
+}
+
+/* Sandbox switcher — mirrors the one on the fire page. */
+.hud-nav {
+  position: fixed;
+  top: 1rem;
+  /* Left, not right: lil-gui owns the top-right corner on this page. */
+  left: clamp(1.5rem, 6vw, 7rem);
+  z-index: 5;
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+}
+.hud-nav a { color: var(--muted); text-decoration: none; }
+.hud-nav a:hover { color: var(--ink); }
+.hud-nav a.on { color: var(--accent); }

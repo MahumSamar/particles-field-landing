@@ -1,0 +1,2455 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Particle Field</title>
+
+    <style>
+      /* ===================== lenis (minimal) ===================== */
+      html.lenis,
+      html.lenis body { height: auto; }
+      .lenis.lenis-smooth { scroll-behavior: auto !important; }
+      .lenis.lenis-smooth [data-lenis-prevent] { overscroll-behavior: contain; }
+      .lenis.lenis-stopped { overflow: hidden; }
+      .lenis.lenis-smooth iframe { pointer-events: none; }
+
+      /* ===================== page ===================== */
+      :root {
+        --bg: #050706;
+        --ink: #eef2f0;
+        --muted: #7c8a85;
+        --accent: #2ee6a0;
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+
+      html { background: var(--bg); }
+
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        font-synthesis-weight: none;
+        -webkit-font-smoothing: antialiased;
+        overflow-x: hidden;
+      }
+
+      /* The canvas sits behind everything, pinned to the viewport. */
+      #field {
+        position: fixed;
+        inset: 0;
+        z-index: 0;
+        pointer-events: none;
+      }
+      #field canvas { display: block; }
+
+      #field .pf-fallback {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: min(60vw, 60vh);
+        transform: translate(-50%, -50%);
+      }
+
+      #smooth-wrapper { position: relative; z-index: 1; }
+
+      .panel {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 1.1rem;
+        max-width: 46rem;
+        padding: 8vh clamp(1.5rem, 6vw, 7rem);
+        pointer-events: none;
+      }
+      .panel.last { min-height: 130vh; }
+
+      /* Alternate sides so the field is never permanently hidden behind type. */
+      .panel:nth-child(even) { margin-left: auto; text-align: right; }
+
+      .eyebrow {
+        font-size: 0.72rem;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+
+      h1 {
+        font-size: clamp(2.6rem, 8vw, 5.5rem);
+        font-weight: 300;
+        letter-spacing: -0.035em;
+        line-height: 0.95;
+      }
+
+      h2 {
+        font-size: clamp(1.7rem, 4vw, 2.9rem);
+        font-weight: 300;
+        letter-spacing: -0.03em;
+      }
+
+      p {
+        font-size: clamp(0.95rem, 1.3vw, 1.08rem);
+        line-height: 1.65;
+        color: var(--muted);
+        max-width: 34rem;
+        text-wrap: pretty;
+      }
+      .panel:nth-child(even) p { margin-left: auto; }
+
+      .lede { color: #b6c4bf; }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.9em;
+        color: var(--accent);
+      }
+
+      .hint {
+        font-size: 0.72rem;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin-top: 2rem;
+      }
+
+      #stats {
+        position: fixed;
+        left: 1rem;
+        bottom: 1rem;
+        z-index: 3;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.68rem;
+        line-height: 1.7;
+        color: var(--muted);
+        white-space: pre;
+        pointer-events: none;
+        opacity: 0.75;
+      }
+
+      .lil-gui { --width: 300px; z-index: 4 !important; }
+
+      @media (prefers-reduced-motion: reduce) {
+        .hint { display: none; }
+      }
+    </style>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.185.1/build/three.module.min.js",
+          "lil-gui": "https://unpkg.com/lil-gui@0.19.2/dist/lil-gui.esm.js",
+          "lenis": "https://unpkg.com/lenis@1.1.18/dist/lenis.mjs"
+        }
+      }
+    </script>
+  </head>
+
+  <body>
+    <div id="field" aria-hidden="true"></div>
+
+    <div id="smooth-wrapper">
+      <div id="smooth-content">
+        <section class="panel hero" id="hero">
+          <p class="eyebrow">three.js · points · no post-processing</p>
+          <h1 id="title">Particle Field</h1>
+          <p class="lede" id="lede">
+            One <code>THREE.Points</code> cloud, a procedural sprite, and a CPU solver.
+            No bloom pass, no depth of field, no texture, no model.
+          </p>
+          <p class="hint">Scroll</p>
+        </section>
+
+        <section class="panel" id="arrival">
+          <h2>It arrives</h2>
+          <p>
+            The field dollies in from 106 world units to 16, interpolated in log space so the
+            approach reads as even rather than rushing at the end. Every particle starts as
+            identical fine dust and grows into its own size class on the way in.
+          </p>
+        </section>
+
+        <section class="panel" id="cursor">
+          <h2>It answers the cursor</h2>
+          <p>
+            Move across it. Particles inside the radius are not pushed away with a falloff —
+            they are relocated to sit exactly on the rim of a disc, measured perpendicular to
+            the view axis so the hole stays circular however far the field has rotated.
+            It snaps in four times faster than it relaxes out.
+          </p>
+        </section>
+
+        <section class="panel" id="shapes">
+          <h2>Any shape</h2>
+          <p>
+            The silhouette is a swappable sampler. The superellipse is one implementation;
+            an SVG path is another. Try the shape control, top right.
+          </p>
+        </section>
+
+        <section class="panel last" id="dissolve">
+          <h2>Then it goes</h2>
+          <p>
+            Each particle travels along a fixed random direction while growing and softening,
+            so the cloud evaporates instead of merely flying apart.
+          </p>
+        </section>
+      </div>
+    </div>
+
+    <div id="stats" aria-live="off"></div>
+
+    <script type="module">
+      import * as THREE from 'three'
+      import Lenis from 'lenis'
+      import GUI from 'lil-gui'
+
+      /* =========================================================================
+       * frameBus — a single requestAnimationFrame loop shared by the whole page.
+       * One rAF, one Set of subscribers, one scroll read per frame, so nothing
+       * can drift out of phase and there is not a single `scroll` listener.
+       * ========================================================================= */
+
+      const subscribers = new Set()
+      let rafId = 0
+      let running = false
+      let startedAt = 0
+      let previous = 0
+
+      let readScroll = () => window.scrollY
+
+      /** Point the bus at a smooth-scroll library instead of raw `window.scrollY`. */
+      function setScrollSource(source) {
+        readScroll = source
+      }
+
+      const frameState = { y: 0, H: 0, time: 0, dt: 0 }
+
+      function tick() {
+        const now = performance.now()
+
+        frameState.y = readScroll()
+        frameState.H = window.innerHeight
+        frameState.time = (now - startedAt) / 1000
+        frameState.dt = Math.min((now - previous) / 1000, 0.1)
+        previous = now
+
+        // Iterating the Set directly is safe: unsubscribing during a tick only
+        // affects entries not yet visited, which is the behaviour we want.
+        for (const fn of subscribers) fn(frameState)
+
+        rafId = requestAnimationFrame(tick)
+      }
+
+      function subscribe(fn) {
+        subscribers.add(fn)
+
+        if (!running) {
+          running = true
+          startedAt = previous = performance.now()
+          rafId = requestAnimationFrame(tick)
+        }
+
+        return () => {
+          subscribers.delete(fn)
+          if (subscribers.size === 0 && running) {
+            running = false
+            cancelAnimationFrame(rafId)
+          }
+        }
+      }
+
+      const prefersReducedMotion =
+        typeof matchMedia !== 'undefined' &&
+        matchMedia('(prefers-reduced-motion: reduce)').matches
+
+      const hasFinePointer =
+        typeof matchMedia !== 'undefined' &&
+        matchMedia('(hover: hover) and (pointer: fine)').matches
+
+      /* =========================================================================
+       * shapes/index — sampler contract
+       *
+       * A ShapeSampler turns *some* 2D silhouette into point clouds: `rim(n)`
+       * walks the outline spaced by arc length, `fill(n)` scatters the interior
+       * uniformly per unit area, both as 2 floats per point, y-up, origin-centred.
+       * A VolumeSampler owns its own depth instead: `edge(n)` (feature curves) and
+       * `surface(n)`, 3 floats per point.
+       * ========================================================================= */
+
+      const isVolume = (s) => s.is3D === true
+
+      /* =========================================================================
+       * shapes/parts3d — reusable 3D sampling primitives.
+       * Coordinate convention: y up, +z toward the viewer, origin at shape centre.
+       * ========================================================================= */
+
+      const TAU = Math.PI * 2
+
+      /** Cubic Bézier evaluated at t. */
+      function bezier3(p0, p1, p2, p3, t) {
+        const u = 1 - t
+        const a = u * u * u
+        const b = 3 * u * u * t
+        const c = 3 * u * t * t
+        const d = t * t * t
+        return [
+          a * p0[0] + b * p1[0] + c * p2[0] + d * p3[0],
+          a * p0[1] + b * p1[1] + c * p2[1] + d * p3[1],
+          a * p0[2] + b * p1[2] + c * p2[2] + d * p3[2],
+        ]
+      }
+
+      /**
+       * Wrap any parametric curve in an arc-length parameterisation: a cumulative
+       * length table, binary-searched and lerped. Sampling uniformly in `s` then
+       * spaces points evenly no matter how unevenly `t` covers the curve.
+       */
+      function arcLengthCurve(fn, steps = 256) {
+        const pts = []
+        const cum = new Float64Array(steps + 1)
+        let acc = 0
+        for (let i = 0; i <= steps; i++) {
+          const p = fn(i / steps)
+          if (i > 0) {
+            const q = pts[i - 1]
+            acc += Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2])
+          }
+          pts.push(p)
+          cum[i] = acc
+        }
+        const total = acc || 1e-9
+
+        function tAt(s) {
+          const target = Math.min(Math.max(s, 0), 1) * total
+          let lo = 0
+          let hi = steps
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1
+            if (cum[mid] < target) lo = mid + 1
+            else hi = mid
+          }
+          const i = Math.max(1, lo)
+          const prev = cum[i - 1]
+          const next = cum[i]
+          const frac = next > prev ? (target - prev) / (next - prev) : 0
+          return (i - 1 + frac) / steps
+        }
+
+        return {
+          length: total,
+          at(s) {
+            return fn(tAt(s))
+          },
+          tangent(s) {
+            const t = tAt(s)
+            const e = 1 / steps
+            const a = fn(Math.max(0, t - e))
+            const b = fn(Math.min(1, t + e))
+            const d = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+            const len = Math.hypot(d[0], d[1], d[2]) || 1
+            return [d[0] / len, d[1] / len, d[2] / len]
+          },
+        }
+      }
+
+      /** An orthonormal frame perpendicular to `t` (parallel-transport-lite). */
+      function frameFor(t) {
+        // Pick the world axis least aligned with the tangent to avoid degeneracy.
+        const ref = Math.abs(t[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+        let ux = t[1] * ref[2] - t[2] * ref[1]
+        let uy = t[2] * ref[0] - t[0] * ref[2]
+        let uz = t[0] * ref[1] - t[1] * ref[0]
+        const ul = Math.hypot(ux, uy, uz) || 1
+        ux /= ul
+        uy /= ul
+        uz /= ul
+        return {
+          u: [ux, uy, uz],
+          v: [t[1] * uz - t[2] * uy, t[2] * ux - t[0] * uz, t[0] * uy - t[1] * ux],
+        }
+      }
+
+      /**
+       * Fill an unmet quota by duplicating already-written points, rather than
+       * leaving zeros that would stack a visible clump of particles at the origin.
+       */
+      function padShortfall(out, offset, written, count) {
+        if (written >= count) return
+        const have = Math.max(written, 1)
+        for (let i = written; i < count; i++) {
+          const src = (offset + (i % have)) * 3
+          const dst = (offset + i) * 3
+          out[dst] = out[src]
+          out[dst + 1] = out[src + 1]
+          out[dst + 2] = out[src + 2]
+        }
+      }
+
+      /**
+       * Area-uniform sampling on an ellipsoid surface.
+       *
+       * Uniform-on-sphere scaled by (rx, ry, rz) is NOT area-uniform — scaling
+       * compresses area unevenly. Accepting with probability ∝ the local area
+       * element J restores uniformity:
+       *   J = |(ry·rz·nx, rx·rz·ny, rx·ry·nz)|,  n = unit-sphere normal
+       */
+      function ellipsoid(opts) {
+        const [cx, cy, cz] = opts.center
+        const [rx, ry, rz] = opts.radii
+        const jMax = Math.max(ry * rz, rx * rz, rx * ry)
+
+        // Thomsen's approximation for ellipsoid area (±1%), scaled by the accepted
+        // patch fraction estimated with a quick Monte Carlo pass.
+        const p = 1.6075
+        const fullArea =
+          4 *
+          Math.PI *
+          Math.pow(
+            (Math.pow(rx * ry, p) + Math.pow(rx * rz, p) + Math.pow(ry * rz, p)) / 3,
+            1 / p,
+          )
+
+        function sphereNormal() {
+          const theta = Math.random() * TAU
+          const cosPhi = 2 * Math.random() - 1
+          const sinPhi = Math.sqrt(1 - cosPhi * cosPhi)
+          return [sinPhi * Math.cos(theta), cosPhi, sinPhi * Math.sin(theta)]
+        }
+
+        let patchFraction = 1
+        if (opts.patch) {
+          let kept = 0
+          const N = 2048
+          for (let i = 0; i < N; i++) {
+            if (opts.patch(sphereNormal())) kept++
+          }
+          patchFraction = kept / N
+        }
+
+        return {
+          area: fullArea * patchFraction,
+          sample(out, offset, count) {
+            let written = 0
+            let guard = count * 200
+            while (written < count && guard-- > 0) {
+              const n = sphereNormal()
+              if (opts.patch && !opts.patch(n)) continue
+              const j = Math.hypot(ry * rz * n[0], rx * rz * n[1], rx * ry * n[2])
+              if (Math.random() > j / jMax) continue
+              let p2 = [cx + rx * n[0], cy + ry * n[1], cz + rz * n[2]]
+              if (opts.warp) p2 = opts.warp(p2, n)
+              const o = (offset + written) * 3
+              out[o] = p2[0]
+              out[o + 1] = p2[1]
+              out[o + 2] = p2[2]
+              written++
+            }
+            padShortfall(out, offset, written, count)
+          },
+        }
+      }
+
+      /**
+       * A tube swept along a curve — horns. Area-uniform along the length because
+       * the curve is arc-length parameterised and the radius is importance-sampled:
+       * a section's area is proportional to its circumference.
+       */
+      function sweptTube(opts) {
+        const { curve, radius } = opts
+
+        // Average radius for area estimate + the importance envelope.
+        const S = 64
+        let rSum = 0
+        let rMax = 1e-9
+        for (let i = 0; i <= S; i++) {
+          const r = radius(i / S)
+          rSum += r
+          rMax = Math.max(rMax, r)
+        }
+        const rMean = rSum / (S + 1)
+
+        return {
+          area: TAU * rMean * curve.length,
+          sample(out, offset, count) {
+            let written = 0
+            let guard = count * 100
+            while (written < count && guard-- > 0) {
+              const s = Math.random()
+              const r = radius(s)
+              // Importance-sample s by circumference so thick sections get more points.
+              if (Math.random() > r / rMax) continue
+              const c = curve.at(s)
+              const { u, v } = frameFor(curve.tangent(s))
+              const a = Math.random() * TAU
+              const ca = Math.cos(a) * r
+              const sa = Math.sin(a) * r
+              const o = (offset + written) * 3
+              out[o] = c[0] + u[0] * ca + v[0] * sa
+              out[o + 1] = c[1] + u[1] * ca + v[1] * sa
+              out[o + 2] = c[2] + u[2] * ca + v[2] * sa
+              written++
+            }
+            padShortfall(out, offset, written, count)
+          },
+        }
+      }
+
+      /** A flat band following a curve — lips, brow underside. */
+      function ribbon(opts) {
+        const { curve, halfWidth, across } = opts
+        const thick = opts.thickness ?? 0.12
+
+        const S = 64
+        let wSum = 0
+        let wMax = 1e-9
+        for (let i = 0; i <= S; i++) {
+          const w = halfWidth(i / S)
+          wSum += w
+          wMax = Math.max(wMax, w)
+        }
+
+        return {
+          area: 2 * (wSum / (S + 1)) * curve.length,
+          sample(out, offset, count) {
+            let written = 0
+            let guard = count * 100
+            while (written < count && guard-- > 0) {
+              const s = Math.random()
+              const w = halfWidth(s)
+              if (Math.random() > w / wMax) continue
+              const c = curve.at(s)
+              const d = across(s)
+              const dl = Math.hypot(d[0], d[1], d[2]) || 1
+              const t = (Math.random() * 2 - 1) * w
+              const n = (Math.random() * 2 - 1) * thick * 0.5
+              // Normal direction: perpendicular to both tangent and across.
+              const tg = curve.tangent(s)
+              const nx = tg[1] * d[2] - tg[2] * d[1]
+              const ny = tg[2] * d[0] - tg[0] * d[2]
+              const nz = tg[0] * d[1] - tg[1] * d[0]
+              const nl = Math.hypot(nx, ny, nz) || 1
+              const o = (offset + written) * 3
+              out[o] = c[0] + (d[0] / dl) * t + (nx / nl) * n
+              out[o + 1] = c[1] + (d[1] / dl) * t + (ny / nl) * n
+              out[o + 2] = c[2] + (d[2] / dl) * t + (nz / nl) * n
+              written++
+            }
+            padShortfall(out, offset, written, count)
+          },
+        }
+      }
+
+      /** Lateral surface of a cone — fangs. Points sampled ∝ local circumference. */
+      function cone(opts) {
+        const { tip, base, baseRadius } = opts
+        const axis = [tip[0] - base[0], tip[1] - base[1], tip[2] - base[2]]
+        const height = Math.hypot(axis[0], axis[1], axis[2]) || 1e-9
+        const dir = [axis[0] / height, axis[1] / height, axis[2] / height]
+        const { u, v } = frameFor(dir)
+        const slant = Math.hypot(height, baseRadius)
+
+        return {
+          area: Math.PI * baseRadius * slant,
+          sample(out, offset, count) {
+            for (let i = 0; i < count; i++) {
+              // Radius ∝ sqrt(u) gives area-uniform sampling on the unrolled disc.
+              const t = Math.sqrt(Math.random()) // 0 at tip, 1 at base
+              const r = baseRadius * t
+              const a = Math.random() * TAU
+              const ca = Math.cos(a) * r
+              const sa = Math.sin(a) * r
+              const o = (offset + i) * 3
+              out[o] = tip[0] - dir[0] * height * t + u[0] * ca + v[0] * sa
+              out[o + 1] = tip[1] - dir[1] * height * t + u[1] * ca + v[1] * sa
+              out[o + 2] = tip[2] - dir[2] * height * t + u[2] * ca + v[2] * sa
+            }
+          },
+        }
+      }
+
+      /** A tapered box volume — brow ridges. Volumetric fill, not just the shell. */
+      function wedge(opts) {
+        const { from, to, halfHeight, halfDepth } = opts
+        const axis = [to[0] - from[0], to[1] - from[1], to[2] - from[2]]
+        const len = Math.hypot(axis[0], axis[1], axis[2]) || 1e-9
+        const dir = [axis[0] / len, axis[1] / len, axis[2] / len]
+        const { u, v } = frameFor(dir)
+
+        return {
+          // Rough lateral area of the tapering box.
+          area: 2 * len * (halfHeight + halfDepth) * 0.6,
+          sample(out, offset, count) {
+            for (let i = 0; i < count; i++) {
+              const t = Math.random()
+              const taper = 1 - 0.8 * t
+              const h = (Math.random() * 2 - 1) * halfHeight * taper
+              const d = (Math.random() * 2 - 1) * halfDepth * taper
+              const o = (offset + i) * 3
+              out[o] = from[0] + dir[0] * len * t + u[0] * h + v[0] * d
+              out[o + 1] = from[1] + dir[1] * len * t + u[1] * h + v[1] * d
+              out[o + 2] = from[2] + dir[2] * len * t + u[2] * h + v[2] * d
+            }
+          },
+        }
+      }
+
+      /**
+       * Distribute a point budget across parts proportionally to area, sample each,
+       * and reject points falling inside that part's cut volumes. Cuts are per-part
+       * rather than global, because some parts deliberately live inside a cut — the
+       * fangs sit inside the mouth cavity that carves everything else.
+       */
+      function samplePartsWithCuts(entries, count) {
+        const parts = entries.map((e) => e.part)
+        const totalArea = parts.reduce((s, p) => s + p.area, 0) || 1
+        const out = new Float32Array(count * 3)
+        const tmp = [0, 0, 0]
+
+        let written = 0
+        for (let pi = 0; pi < parts.length; pi++) {
+          const part = parts[pi]
+          const cuts = entries[pi].cuts ?? []
+          const quota =
+            pi === parts.length - 1
+              ? count - written
+              : Math.round((part.area / totalArea) * count)
+          if (quota <= 0) continue
+
+          // Sample into a scratch block, then filter through the cuts, resampling
+          // the shortfall in progressively smaller blocks.
+          let need = quota
+          let guard = 40
+          while (need > 0 && guard-- > 0) {
+            const block = new Float32Array(need * 3)
+            part.sample(block, 0, need)
+            for (let i = 0; i < need; i++) {
+              tmp[0] = block[i * 3]
+              tmp[1] = block[i * 3 + 1]
+              tmp[2] = block[i * 3 + 2]
+              let cut = false
+              for (const c of cuts) {
+                if (c(tmp)) {
+                  cut = true
+                  break
+                }
+              }
+              if (!cut) {
+                const o = written * 3
+                out[o] = tmp[0]
+                out[o + 1] = tmp[1]
+                out[o + 2] = tmp[2]
+                written++
+                if (--need === 0) break
+              }
+            }
+            // If a part is entirely inside a cut, the guard expires and we move on.
+          }
+          // Any expired-guard shortfall is topped up from what we already have.
+          if (need > 0) {
+            padShortfall(out, 0, written, written + need)
+            written += need
+          }
+        }
+        return out
+      }
+
+      /**
+       * Sample a set of feature curves evenly: the point budget is split across
+       * curves ∝ length, and each curve is sampled uniformly in arc length with
+       * slot jitter (never a dotted line), with an optional radial scatter.
+       */
+      function sampleCurves(curves, count, cuts = []) {
+        const total = curves.reduce((s, c) => s + c.curve.length, 0) || 1
+        const out = new Float32Array(count * 3)
+        let written = 0
+
+        for (let ci = 0; ci < curves.length; ci++) {
+          const { curve, scatter = 0 } = curves[ci]
+          const quota =
+            ci === curves.length - 1
+              ? count - written
+              : Math.round((curve.length / total) * count)
+
+          let placed = 0
+          let attempt = 0
+          const maxAttempts = quota * 30
+          while (placed < quota && attempt++ < maxAttempts) {
+            const s = (placed + Math.random() * 0.7) / quota
+            const p = curve.at(s)
+            const px = p[0] + (Math.random() * 2 - 1) * scatter
+            const py = p[1] + (Math.random() * 2 - 1) * scatter
+            const pz = p[2] + (Math.random() * 2 - 1) * scatter
+            let cut = false
+            for (const c of cuts) {
+              if (c([px, py, pz])) {
+                cut = true
+                break
+              }
+            }
+            if (cut) continue
+            const o = written * 3
+            out[o] = px
+            out[o + 1] = py
+            out[o + 2] = pz
+            written++
+            placed++
+          }
+          if (placed < quota) {
+            padShortfall(out, 0, written, written + (quota - placed))
+            written += quota - placed
+          }
+        }
+        return out
+      }
+
+      /* =========================================================================
+       * shapes/superellipse
+       *
+       * The 4-pointed star is one function — no model, no texture, no asset.
+       * Polar form of the Lamé curve:
+       *   r(θ) = [ (|cosθ|/a)^e + (|sinθ|/b)^e ]^(-1/e)
+       * The effective exponent is 2/n, so n > 2 pushes it below 1 and makes the
+       * curve *concave* — which is where the sparkle comes from.
+       * ========================================================================= */
+
+      function radiusAt(theta, a, b, e, invE) {
+        const c = Math.pow(Math.abs(Math.cos(theta)) / a, e)
+        const s = Math.pow(Math.abs(Math.sin(theta)) / b, e)
+        return Math.pow(c + s, invE)
+      }
+
+      function superellipse(options = {}) {
+        const n = options.n ?? 3.7
+        const aspect = options.aspect ?? 1.05
+        const a = options.radius ?? 5.3
+        const b = a * aspect
+        const lutSize = options.lut ?? 1440
+
+        const e = 2 / n
+        const invE = -n / 2
+
+        const r = (theta) => radiusAt(theta, a, b, e, invE)
+
+        // --- Cumulative arc-length table, walked once at build time -----------
+        // lut[i] is the distance travelled along the outline from θ=0 to θ=i/lutSize·2π.
+        const lut = new Float32Array(lutSize + 1)
+        {
+          let travelled = 0
+          let px = r(0)
+          let py = 0
+          for (let i = 0; i <= lutSize; i++) {
+            const theta = (i / lutSize) * TAU
+            const rad = r(theta)
+            const x = Math.cos(theta) * rad
+            const y = Math.sin(theta) * rad
+            if (i > 0) travelled += Math.hypot(x - px, y - py)
+            lut[i] = travelled
+            px = x
+            py = y
+          }
+        }
+        const perimeter = lut[lutSize]
+
+        /** Invert arc length → θ by binary-searching the table, then lerping. */
+        function thetaAtLength(target) {
+          let lo = 0
+          let hi = lutSize
+          while (lo < hi) {
+            const mid = (lo + hi) >> 1
+            if (lut[mid] < target) lo = mid + 1
+            else hi = mid
+          }
+          const i = Math.max(1, lo)
+          const prev = lut[i - 1]
+          const next = lut[i]
+          const frac = next > prev ? (target - prev) / (next - prev) : 0
+          return ((i - 1 + frac) / lutSize) * TAU
+        }
+
+        const rMax = Math.max(a, b)
+
+        return {
+          bounds: () => ({ halfW: a, halfH: b }),
+
+          rim(count) {
+            const out = new Float32Array(count * 2)
+            for (let i = 0; i < count; i++) {
+              // Jitter within the slot so the outline never looks like a dotted line.
+              const s = ((i + Math.random() * 0.7) / count) * perimeter
+              const theta = thetaAtLength(s)
+              const rad = r(theta) * (0.9 + Math.random() * 0.1)
+              out[i * 2] = Math.cos(theta) * rad
+              out[i * 2 + 1] = Math.sin(theta) * rad
+            }
+            return out
+          },
+
+          fill(count) {
+            const out = new Float32Array(count * 2)
+            let written = 0
+            let guard = count * 64 // pathological-shape backstop
+
+            while (written < count && guard-- > 0) {
+              const theta = Math.random() * TAU
+              const rad = r(theta)
+
+              // Rejection-sample the *angle* weighted by radius², so wide sectors of
+              // the star receive proportionally more points than the pinched ones.
+              if (Math.random() > (rad / rMax) ** 2) continue
+
+              // sqrt() of a uniform gives a radially uniform-in-area distribution;
+              // without it everything piles into the centre.
+              const t = Math.sqrt(Math.random()) * 0.93
+
+              out[written * 2] = Math.cos(theta) * rad * t
+              out[written * 2 + 1] = Math.sin(theta) * rad * t
+              written++
+            }
+
+            // Guard tripped (degenerate shape): pad rather than hand back zeros,
+            // which would stack a visible clump of particles at the origin.
+            for (let i = written; i < count; i++) {
+              const src = (i % Math.max(written, 1)) * 2
+              out[i * 2] = out[src]
+              out[i * 2 + 1] = out[src + 1]
+            }
+            return out
+          },
+        }
+      }
+
+      /* =========================================================================
+       * shapes/svgPath
+       *
+       * Samples any SVG path — a logo, an icon, a glyph outline — two ways, each
+       * the robust mechanism for its job:
+       *  - Outline uses getPointAtLength(): the browser's own exact arc-length
+       *    parameterisation, replacing the hand-built LUT above.
+       *  - Interior rasterises the filled path once and samples opaque pixels,
+       *    which handles holes and multiple subpaths for free.
+       * ========================================================================= */
+
+      function svgPath(d, options = {}) {
+        const radius = options.radius ?? 5.3
+        const resolution = options.resolution ?? 512
+
+        // --- Measure via a detached-but-rendered SVG -------------------------
+        // getBBox() needs a rendered element in some engines, so mount it hidden
+        // rather than measuring a fully detached node.
+        const NS = 'http://www.w3.org/2000/svg'
+        const svg = document.createElementNS(NS, 'svg')
+        svg.setAttribute('aria-hidden', 'true')
+        svg.style.cssText =
+          'position:absolute;width:0;height:0;overflow:hidden;pointer-events:none;visibility:hidden'
+        const path = document.createElementNS(NS, 'path')
+        path.setAttribute('d', d)
+        svg.appendChild(path)
+        document.body.appendChild(svg)
+
+        let box
+        let totalLength = 0
+        try {
+          box = path.getBBox()
+          totalLength = path.getTotalLength()
+        } catch {
+          box = { x: 0, y: 0, width: 1, height: 1 }
+        }
+
+        if (!(box.width > 0) || !(box.height > 0)) {
+          document.body.removeChild(svg)
+          throw new Error('svgPath: path has an empty bounding box — check the `d` string')
+        }
+
+        const cx = box.x + box.width / 2
+        const cy = box.y + box.height / 2
+        // Normalise so the *longer* axis spans 2 × radius; proportions are kept.
+        const scale = (radius * 2) / Math.max(box.width, box.height)
+
+        const halfW = (box.width / 2) * scale
+        const halfH = (box.height / 2) * scale
+
+        // SVG's y axis points down, WebGL's points up.
+        const toWorldX = (px) => (px - cx) * scale
+        const toWorldY = (py) => -(py - cy) * scale
+
+        // --- Rasterise once for interior sampling ----------------------------
+        const rw = Math.max(2, Math.round((box.width / Math.max(box.width, box.height)) * resolution))
+        const rh = Math.max(2, Math.round((box.height / Math.max(box.width, box.height)) * resolution))
+
+        const canvas = document.createElement('canvas')
+        canvas.width = rw
+        canvas.height = rh
+        const ctx = canvas.getContext('2d', { willReadFrequently: true })
+        ctx.setTransform(
+          rw / box.width, 0, 0, rh / box.height,
+          (-box.x * rw) / box.width, (-box.y * rh) / box.height,
+        )
+        ctx.fillStyle = '#fff'
+        ctx.fill(new Path2D(d))
+
+        const pixels = ctx.getImageData(0, 0, rw, rh).data
+        const inside = []
+        for (let i = 0; i < rw * rh; i++) {
+          if (pixels[i * 4 + 3] > 127) inside.push(i)
+        }
+
+        document.body.removeChild(svg)
+
+        if (inside.length === 0) {
+          throw new Error('svgPath: path rasterised to nothing — is it stroke-only, with no fill area?')
+        }
+
+        return {
+          bounds: () => ({ halfW, halfH }),
+
+          rim(count) {
+            const out = new Float32Array(count * 2)
+            if (totalLength <= 0) return out
+            for (let i = 0; i < count; i++) {
+              const at = ((i + Math.random() * 0.7) / count) * totalLength
+              const p = path.getPointAtLength(at % totalLength)
+              out[i * 2] = toWorldX(p.x)
+              out[i * 2 + 1] = toWorldY(p.y)
+            }
+            return out
+          },
+
+          fill(count) {
+            const out = new Float32Array(count * 2)
+            for (let i = 0; i < count; i++) {
+              const idx = inside[(Math.random() * inside.length) | 0]
+              // Jitter inside the pixel so the cloud does not betray the raster grid.
+              const px = box.x + ((idx % rw) + Math.random()) * (box.width / rw)
+              const py = box.y + (((idx / rw) | 0) + Math.random()) * (box.height / rh)
+              out[i * 2] = toWorldX(px)
+              out[i * 2 + 1] = toWorldY(py)
+            }
+            return out
+          },
+        }
+      }
+
+      /* =========================================================================
+       * shapes/hannya
+       *
+       * A hannya mask composed from ~14 parametric primitives, proportioned
+       * against a 6-view reference sheet. Deliberately primitive: the identity
+       * lives in the feature curves — horns, brow crests, eye rims, nose ridge,
+       * the grimace — and in the cuts, not in surface detail.
+       *
+       * Source-space numbers below are measured off the front view (face
+       * half-height = 5.0) and the profile (depth). A final shift recentres the
+       * mask so it spins about its visual centre, then `scale` sizes it.
+       * ========================================================================= */
+
+      function hannya(options = {}) {
+        const SCALE = options.scale ?? 0.72
+        const hornLen = options.hornLength ?? 1
+        const open = options.mouthOpen ?? 1
+
+        // Centre of the unshifted build, computed from the extents measured below.
+        const YSHIFT = -1.68
+        const ZSHIFT = -1.19
+
+        // -------------------------------------------------------------------
+        // Shared curves
+        // -------------------------------------------------------------------
+
+        /** The grimace: wide, corners pulled hard up, wrapped back around the face. */
+        const mouthY = (x) => -2.35 + 0.75 * (x / 2.55) ** 2
+        const mouthZ = (x) => 2.25 - 0.55 * (x / 2.55) ** 2
+
+        const lipCurve = (offset) =>
+          arcLengthCurve((t) => {
+            const x = -2.55 + 5.1 * t
+            return [x, mouthY(x) + offset, mouthZ(x)]
+          })
+
+        /** Horn spine; `s` = ±1 mirrors it. Up, outward, raked back, tip recovering. */
+        const hornSpine = (s) => {
+          const base = [s * 1.85, 4.15, 0.15]
+          const stretch = (p) => [p[0], base[1] + (p[1] - base[1]) * hornLen, p[2]]
+          const c1 = stretch([s * 3.15, 5.7, -0.5])
+          const c2 = stretch([s * 3.5, 7.3, -1.0])
+          const tip = stretch([s * 2.7, 8.55, -0.55])
+          return arcLengthCurve((t) => bezier3(base, c1, c2, tip, t))
+        }
+
+        /** Front z of the face shell at (x, y) — used to seat curves ON the shell. */
+        const shellZ = (x, y) => {
+          const q = 1 - (x / 3.6) ** 2 - ((y - 0.2) / 5.0) ** 2
+          return -0.4 + 2.4 * Math.sqrt(Math.max(q, 0))
+        }
+
+        /** Chin taper: the face narrows toward the jaw. Applied to shell + border. */
+        const taperX = (y) => (y < 0.2 ? 1 - 0.42 * Math.pow((0.2 - y) / 5.2, 1.7) : 1)
+
+        // -------------------------------------------------------------------
+        // Cut volumes
+        // -------------------------------------------------------------------
+
+        /** Tilted eye sockets: outer corners raised — the angry almond. */
+        const eyeSocket = (s) => {
+          const cx = s * 1.75
+          const cy = 1.3
+          const cz = 1.95
+          const phi = (s * (16 * Math.PI)) / 180
+          const cos = Math.cos(-phi)
+          const sin = Math.sin(-phi)
+          return (p) => {
+            const dx0 = p[0] - cx
+            const dy0 = p[1] - cy
+            const dx = (dx0 * cos - dy0 * sin) / 1.08
+            const dy = (dx0 * sin + dy0 * cos) / 0.62
+            const dz = (p[2] - cz) / 1.3
+            return dx * dx + dy * dy + dz * dz < 1
+          }
+        }
+
+        const nostril = (s) => {
+          const c = [s * 0.45, -0.62, 2.7]
+          return (p) => {
+            const dx = p[0] - c[0]
+            const dy = p[1] - c[1]
+            const dz = p[2] - c[2]
+            return dx * dx + dy * dy + dz * dz < 0.3 * 0.3
+          }
+        }
+
+        /** The dark opening between the lips. */
+        const mouthCavity = (p) => {
+          if (Math.abs(p[0]) > 2.45 || p[2] < 0.6) return false
+          return Math.abs(p[1] - mouthY(p[0])) < 0.52 * open
+        }
+
+        const faceCuts = [eyeSocket(1), eyeSocket(-1), nostril(1), nostril(-1), mouthCavity]
+
+        // -------------------------------------------------------------------
+        // Parts
+        // -------------------------------------------------------------------
+
+        function hornTube(spine) {
+          return sweptTube({ curve: spine, radius: (s) => 0.06 + 0.55 * Math.pow(1 - s, 0.85) })
+        }
+
+        function browWedge(s) {
+          return wedge({
+            from: [s * 0.5, 2.1, 2.3],
+            to: [s * 2.9, 3.15, 0.95],
+            halfHeight: 0.62,
+            halfDepth: 0.5,
+          })
+        }
+
+        function cheek(s) {
+          const out = [s * 0.8, -0.1, 0.6]
+          const len = Math.hypot(out[0], out[1], out[2])
+          return ellipsoid({
+            center: [s * 2.15, -0.55, 0.9],
+            radii: [1.0, 1.15, 0.85],
+            patch: (n) => (n[0] * out[0] + n[1] * out[1] + n[2] * out[2]) / len > 0.15,
+          })
+        }
+
+        const lowerLipOffset = -0.62 - 0.5 * (open - 1)
+
+        const entries = [
+          {
+            // The shell: an egg patch, open at the back, narrowed toward the chin.
+            part: ellipsoid({
+              center: [0, 0.2, -0.4],
+              radii: [3.6, 5.0, 2.4],
+              patch: (n) => n[2] > -0.12,
+              warp: (p) => [p[0] * taperX(p[1]), p[1], p[2]],
+            }),
+            cuts: faceCuts,
+          },
+          { part: hornTube(hornSpine(1)) },
+          { part: hornTube(hornSpine(-1)) },
+          { part: browWedge(1), cuts: [eyeSocket(1)] },
+          { part: browWedge(-1), cuts: [eyeSocket(-1)] },
+          { part: cheek(1), cuts: [mouthCavity, eyeSocket(1)] },
+          { part: cheek(-1), cuts: [mouthCavity, eyeSocket(-1)] },
+          {
+            // Chin knob under the grimace.
+            part: ellipsoid({
+              center: [0, -4.35, 0.75],
+              radii: [1.05, 0.85, 0.75],
+              patch: (n) => n[2] > 0.1,
+            }),
+            cuts: [mouthCavity],
+          },
+          {
+            // Nose: a pyramid, wide at the nostrils, narrowing to the glabella.
+            part: wedge({
+              from: [0, -0.7, 2.85],
+              to: [0, 1.75, 2.1],
+              halfHeight: 0.55,
+              halfDepth: 0.85,
+            }),
+            cuts: [nostril(1), nostril(-1)],
+          },
+          {
+            part: ribbon({
+              curve: lipCurve(0.46),
+              halfWidth: (s) => 0.3 - 0.1 * Math.abs(2 * s - 1),
+              across: () => [0, 1, 0.25],
+              thickness: 0.45,
+            }),
+            cuts: [mouthCavity],
+          },
+          {
+            part: ribbon({
+              curve: lipCurve(lowerLipOffset),
+              halfWidth: (s) => 0.27 - 0.09 * Math.abs(2 * s - 1),
+              across: () => [0, 1, 0.25],
+              thickness: 0.45,
+            }),
+            cuts: [mouthCavity],
+          },
+          // Fangs live INSIDE the mouth cavity — no cuts on purpose.
+          { part: cone({ tip: [1.64, -3.35, 2.26], base: [1.7, -2.05, 2.2], baseRadius: 0.3 }) },
+          { part: cone({ tip: [-1.64, -3.35, 2.26], base: [-1.7, -2.05, 2.2], baseRadius: 0.3 }) },
+          { part: cone({ tip: [0.95, -2.25, 2.24], base: [0.9, -3.05, 2.2], baseRadius: 0.22 }) },
+          { part: cone({ tip: [-0.95, -2.25, 2.24], base: [-0.9, -3.05, 2.2], baseRadius: 0.22 }) },
+        ]
+
+        // -------------------------------------------------------------------
+        // Feature curves — the identity
+        // -------------------------------------------------------------------
+
+        const deg = Math.PI / 180
+
+        /** Eye rim: the socket ellipse at 1.06×, seated on the shell surface. */
+        const eyeRim = (s) => {
+          const phi = s * 16 * deg
+          const cos = Math.cos(phi)
+          const sin = Math.sin(phi)
+          return arcLengthCurve((t) => {
+            const a = t * Math.PI * 2
+            const ex = 1.14 * Math.cos(a)
+            const ey = 0.68 * Math.sin(a)
+            const x = s * 1.75 + ex * cos - ey * sin
+            const y = 1.3 + ex * sin + ey * cos
+            return [x, y, shellZ(x, y) + 0.06]
+          })
+        }
+
+        /** Nose ridge with the under-hook at the tip. */
+        const noseRidge = arcLengthCurve((t) =>
+          bezier3([0, 1.75, 2.2], [0, 0.4, 2.75], [0, -0.5, 3.2], [0, -0.95, 2.95], t),
+        )
+
+        /** Ring around each nostril hole. */
+        const nostrilRing = (s) =>
+          arcLengthCurve((t) => {
+            const a = t * Math.PI * 2
+            return [
+              s * (0.45 + 0.4 * Math.cos(a)),
+              -0.62 + 0.3 * Math.sin(a),
+              2.62 + 0.18 * Math.sin(a),
+            ]
+          })
+
+        /** Mask border: temple → jaw → chin → jaw → temple, with the chin taper. */
+        const faceBorder = arcLengthCurve((t) => {
+          const a = (30 - 240 * t) * deg
+          const y = 0.2 + 5.0 * Math.sin(a)
+          const x = 3.6 * Math.cos(a) * taperX(y)
+          return [x, y, -0.25]
+        })
+
+        /** Skull dome between the horns. */
+        const domeArc = arcLengthCurve((t) => {
+          const a = (55 + 70 * t) * deg
+          const y = 0.2 + 5.0 * Math.sin(a)
+          const x = 3.6 * Math.cos(a)
+          return [x, y, -0.25]
+        })
+
+        const browCrest = (s) =>
+          arcLengthCurve((t) => [s * (0.45 + 2.5 * t), 2.5 + 0.95 * t, 2.35 - 1.45 * t])
+
+        /** Straight helper line. */
+        const line = (a, b) =>
+          arcLengthCurve((t) => [
+            a[0] + (b[0] - a[0]) * t,
+            a[1] + (b[1] - a[1]) * t,
+            a[2] + (b[2] - a[2]) * t,
+          ])
+
+        /** Closed triangle outline — used to draw fangs legibly. */
+        const tri = (a, b, c) =>
+          arcLengthCurve((t) => {
+            const u = t * 3
+            const seg = Math.min(2, Math.floor(u))
+            const f = u - seg
+            const [p0, p1] = seg === 0 ? [a, b] : seg === 1 ? [b, c] : [c, a]
+            return [
+              p0[0] + (p1[0] - p0[0]) * f,
+              p0[1] + (p1[1] - p0[1]) * f,
+              p0[2] + (p1[2] - p0[2]) * f,
+            ]
+          })
+
+        const fangTri = (s, upper) =>
+          upper
+            ? tri([s * 1.42, -2.1, 2.24], [s * 1.98, -2.1, 2.24], [s * 1.64, -3.35, 2.26])
+            : tri([s * 0.68, -3.0, 2.22], [s * 1.12, -3.0, 2.22], [s * 0.95, -2.25, 2.24])
+
+        const edgeCurves = [
+          // The one mouth line: the upper lip edge, just clear of the cavity cut.
+          { curve: lipCurve(0.58), scatter: 0.04 },
+          { curve: fangTri(1, true), scatter: 0.03 },
+          { curve: fangTri(-1, true), scatter: 0.03 },
+          { curve: fangTri(1, false), scatter: 0.03 },
+          { curve: fangTri(-1, false), scatter: 0.03 },
+          // Nose side walls — turn the faint ridge into a readable wedge.
+          { curve: line([0.3, 1.55, 2.3], [0.52, -0.35, 2.9]), scatter: 0.04 },
+          { curve: line([-0.3, 1.55, 2.3], [-0.52, -0.35, 2.9]), scatter: 0.04 },
+          { curve: hornSpine(1), scatter: 0.1 },
+          { curve: hornSpine(-1), scatter: 0.1 },
+          { curve: browCrest(1), scatter: 0.06 },
+          { curve: browCrest(-1), scatter: 0.06 },
+          { curve: eyeRim(1), scatter: 0.05 },
+          { curve: eyeRim(-1), scatter: 0.05 },
+          { curve: noseRidge, scatter: 0.05 },
+          { curve: nostrilRing(1), scatter: 0.04 },
+          { curve: nostrilRing(-1), scatter: 0.04 },
+          { curve: faceBorder, scatter: 0.08 },
+          { curve: domeArc, scatter: 0.08 },
+        ]
+
+        // Edge points trace cut boundaries at a safe offset, but scatter can still
+        // push one inside — so edges are cut-checked too.
+        const edgeCuts = faceCuts
+
+        // -------------------------------------------------------------------
+        // Assembly
+        // -------------------------------------------------------------------
+
+        const place = (arr) => {
+          for (let i = 0; i < arr.length; i += 3) {
+            arr[i] = arr[i] * SCALE
+            arr[i + 1] = (arr[i + 1] + YSHIFT) * SCALE
+            arr[i + 2] = (arr[i + 2] + ZSHIFT) * SCALE
+          }
+          return arr
+        }
+
+        // Extents measured from the source-space numbers above (horn tips, chin,
+        // shell sides, nose tip, horn rake).
+        const halfW = 3.7 * SCALE
+        const halfH = 6.95 * SCALE
+        const halfD = 2.25 * SCALE
+
+        return {
+          is3D: true,
+          bounds: () => ({ halfW, halfH }),
+          bounds3: () => ({ halfW, halfH, halfD }),
+          edge: (n) => place(sampleCurves(edgeCurves, n, edgeCuts)),
+          surface: (n) => place(samplePartsWithCuts(entries, n)),
+        }
+      }
+
+      /* =========================================================================
+       * material — the shader. No texture, no post-processing pass.
+       *
+       * CALM_* are two rounded-box SDFs evaluated *after* projection, dimming
+       * particles that sit behind text. That is the trick that lets type stay
+       * legible on top of a live additive field without a scrim or backdrop blur.
+       * ========================================================================= */
+
+      const CALM_CHUNK = /* glsl */ `
+uniform vec4  uCalmA;
+uniform vec4  uCalmB;
+uniform float uCalmOn;
+uniform float uAspect;
+`
+
+      const CALM_APPLY = /* glsl */ `
+  vec2 sp = gl_Position.xy / max(gl_Position.w, 1e-4);
+  sp.x *= uAspect;
+  float dCalm = min(
+    length(max(abs(sp - uCalmA.xy) - uCalmA.zw, vec2(0.0))),
+    length(max(abs(sp - uCalmB.xy) - uCalmB.zw, vec2(0.0)))
+  );
+  vA *= 1.0 - uCalmOn * 0.7 * (1.0 - smoothstep(0.0, 0.45, dCalm));
+`
+
+      const VERTEX = /* glsl */ `
+attribute vec3  aCol;
+attribute float aSize;
+attribute float aSoft;
+attribute float aPhase;
+attribute float aTw;
+attribute float aDrift;
+
+uniform float uScale;    // renderer height * 0.5 — keeps sizes resolution-independent
+uniform float uTime;
+uniform float uMotion;   // 0 kills all idle animation (reduced motion)
+uniform float uSizeMul;
+uniform float uMinPx;
+uniform float uLife;     // 0 = uniform dust, 1 = fully materialised
+uniform float uSeedSize; // the size every particle starts at when uLife = 0
+uniform float uBurst;    // 0 = intact, 1 = fully dissolved
+
+${CALM_CHUNK}
+
+varying vec3  vCol;
+varying float vSoft;
+varying float vA;
+
+void main() {
+  vCol = aCol;
+
+  // Turbulent wander. Three different frequencies keep it from looking like
+  // every particle is riding the same wave.
+  vec3 p = position;
+  float dr = aDrift * uLife * uMotion;
+  p.x += sin(uTime * 0.73 + aPhase) * dr;
+  p.y += sin(uTime * 0.61 + aPhase * 1.7) * dr;
+  p.z += sin(uTime * 0.51 + aPhase * 2.3) * dr;
+
+  vec4 mv = modelViewMatrix * vec4(p, 1.0);
+  float depth = max(-mv.z, 0.1);
+
+  // Materialise: every particle starts as identical fine dust and grows into
+  // its own size class. Dissolving grows and softens it further, so the cloud
+  // evaporates rather than merely flying apart.
+  float size = mix(uSeedSize, aSize, uLife) * (1.0 + uBurst * 0.6);
+  vSoft = clamp(mix(aSoft * uLife, 1.0, uBurst * 0.85), 0.0, 1.0);
+
+  // Manual perspective attenuation, clamped so particles never vanish and
+  // never blow up into screen-filling quads.
+  gl_PointSize = clamp(size * uSizeMul * uScale / depth, uMinPx, uScale * 0.05);
+
+  float tw = 1.0 - aTw * uMotion *
+    (0.5 + 0.5 * sin(uTime * (1.4 + fract(aPhase) * 1.3) + aPhase * 6.283));
+
+  float dAtt = clamp((depth - 16.0) / 8.0, 0.0, 1.0);
+  vA = tw * mix(1.0, 0.55, dAtt) * smoothstep(0.12, 1.1, depth);
+
+  gl_Position = projectionMatrix * mv;
+${CALM_APPLY}
+}
+`
+
+      const FRAGMENT = /* glsl */ `
+uniform float uOpacity;
+
+varying vec3  vCol;
+varying float vSoft;
+varying float vA;
+
+void main() {
+  // Procedural sprite — no texture is loaded anywhere in this component.
+  vec2 q = gl_PointCoord - vec2(0.5);
+  float d2 = dot(q, q) * 4.0;
+  if (d2 >= 1.0) discard;
+
+  float inv   = 1.0 - d2;
+  float tight = min(1.0, inv * 1.9); // crisp disc with a soft edge
+  float soft  = inv * inv;           // wide quadratic glow
+
+  // The whole "blur / bloom" look is this mix, stacked additively. No post pass.
+  float a = mix(tight, soft * 0.55, vSoft) * vA * uOpacity;
+  if (a < 0.004) discard;
+
+  gl_FragColor = vec4(vCol, a);
+}
+`
+
+      function createMaterial(options = {}) {
+        return new THREE.ShaderMaterial({
+          transparent: true,
+          // Additive blending assumes a dark background. On a light background this
+          // needs NormalBlending and a re-thought palette.
+          blending: THREE.AdditiveBlending,
+          depthWrite: false,
+          vertexShader: VERTEX,
+          fragmentShader: FRAGMENT,
+          uniforms: {
+            uScale: { value: 1 },
+            uTime: { value: 0 },
+            uMotion: { value: options.motion === false ? 0 : 1 },
+            uSizeMul: { value: options.sizeMultiplier ?? 1 },
+            uMinPx: { value: 0 },
+            uLife: { value: 1 },
+            uSeedSize: { value: options.seedSize ?? 0.115 },
+            uBurst: { value: 0 },
+            uOpacity: { value: 1 },
+            uAspect: { value: 1 },
+            // Parked far off-screen so the SDF is inert until real rects arrive.
+            uCalmA: { value: new THREE.Vector4(99, 99, 0, 0) },
+            uCalmB: { value: new THREE.Vector4(99, 99, 0, 0) },
+            uCalmOn: { value: 0 },
+          },
+        })
+      }
+
+      /* =========================================================================
+       * geometry — turns a sampler into buffers.
+       *
+       * `soft` per size class is what produces the bokeh look: there is no blur
+       * pass anywhere, just a small share of large, very soft, additive points.
+       * ========================================================================= */
+
+      const DEFAULT_CLASSES = [
+        { mix: 0.70, size: [0.08, 0.135], soft: 0.10 },
+        { mix: 0.25, size: [0.16, 0.25], soft: 0.45 },
+        { mix: 0.05, size: [0.32, 0.58], soft: 1.00 }, // the bokeh
+      ]
+
+      const rand = (lo, hi) => lo + Math.random() * (hi - lo)
+
+      function buildGeometry(sampler, options = {}) {
+        const volume = isVolume(sampler)
+        const count = options.count ?? 6000
+        const rimFraction = options.rimFraction ?? 0.26
+        const cloudCount = Math.min(options.cloudCount ?? 260, count)
+        const cloudSpread = options.cloudSpread ?? [1.15, 1.9]
+        const cloudAmplitude = options.cloudAmplitude ?? 0.38
+        const thicknessRatio = options.thickness ?? 0.09
+        const rimSize = options.rimSize ?? [0.075, 0.13]
+        const rimSoft = options.rimSoft ?? 0.08
+        const classes = options.classes ?? DEFAULT_CLASSES
+        const twinkle = options.twinkle ?? 0.38
+        const driftBase = options.drift ?? 0.055
+
+        const pal = options.palette ?? {}
+        const pale = new THREE.Color(pal.pale ?? '#9FF5D4')
+        const accent = new THREE.Color(pal.accent ?? '#2EE6A0')
+        const deep = new THREE.Color(pal.deep ?? '#14805A')
+        const sparkle = new THREE.Color(pal.sparkle ?? '#FFFFFF')
+        const sparkleChance = pal.sparkleChance ?? 0.015
+
+        const { halfW, halfH } = sampler.bounds()
+        // 2D shapes fabricate depth as a thin slab; a volume sampler owns its own
+        // z and `thickness` is ignored (2D-only by design).
+        const halfD = volume ? sampler.bounds3().halfD : thicknessRatio * halfH
+        const rMax = Math.max(halfW, halfH)
+
+        const body = count - cloudCount
+        const rimCount = Math.round(body * rimFraction)
+        const fillCount = body - rimCount
+
+        const position = new Float32Array(count * 3)
+        const aCol = new Float32Array(count * 3)
+        const aSize = new Float32Array(count)
+        const aSoft = new Float32Array(count)
+        const aPhase = new Float32Array(count)
+        const aTw = new Float32Array(count)
+        const aDrift = new Float32Array(count)
+
+        const cloudAmp = new Float32Array(count)
+        const burstDir = new Float32Array(count * 3)
+        const burstDist = new Float32Array(count)
+        const holeJitter = new Float32Array(count)
+        const holeAngle = new Float32Array(count)
+
+        // Normalised cumulative mix, so `classes` need not sum to exactly 1.
+        const total = classes.reduce((s, c) => s + c.mix, 0) || 1
+        const cumulative = []
+        let acc = 0
+        for (const c of classes) {
+          acc += c.mix / total
+          cumulative.push(acc)
+        }
+        function pickClass() {
+          const r = Math.random()
+          for (let i = 0; i < cumulative.length; i++) if (r <= cumulative[i]) return classes[i]
+          return classes[classes.length - 1]
+        }
+
+        const tmp = new THREE.Color()
+        let w = 0
+
+        const writeCommon = (i, size, soft, tw, drift) => {
+          aSize[i] = size
+          aSoft[i] = soft
+          aPhase[i] = Math.random() * Math.PI * 2
+          aTw[i] = tw
+          aDrift[i] = drift
+          holeJitter[i] = 1 + (Math.random() * 2 - 1) * 0.08
+          holeAngle[i] = Math.random() * Math.PI * 2
+        }
+
+        // --- 1. Outline / feature edges --------------------------------------
+        const rimPts = volume ? sampler.edge(rimCount) : sampler.rim(rimCount)
+        const rimStride = volume ? 3 : 2
+        for (let i = 0; i < rimCount; i++, w++) {
+          const o = w * 3
+          position[o] = rimPts[i * rimStride]
+          position[o + 1] = rimPts[i * rimStride + 1]
+          position[o + 2] = volume
+            ? rimPts[i * rimStride + 2]
+            : (Math.random() * 2 - 1) * halfD * 0.8
+
+          // The rim is what defines the silhouette, so it stays bright and crisp.
+          tmp.copy(Math.random() < 0.55 ? pale : accent)
+          aCol[o] = tmp.r
+          aCol[o + 1] = tmp.g
+          aCol[o + 2] = tmp.b
+
+          writeCommon(w, rand(rimSize[0], rimSize[1]), rimSoft, twinkle * 0.5, driftBase * 0.12)
+        }
+
+        // --- 2. Interior / surface -------------------------------------------
+        const fillPts = volume ? sampler.surface(fillCount) : sampler.fill(fillCount)
+        const fillStride = volume ? 3 : 2
+        for (let i = 0; i < fillCount; i++, w++) {
+          const o = w * 3
+          const x = fillPts[i * fillStride]
+          const y = fillPts[i * fillStride + 1]
+          const z = volume ? fillPts[i * fillStride + 2] : (Math.random() * 2 - 1) * halfD
+          position[o] = x
+          position[o + 1] = y
+          position[o + 2] = z
+
+          const q = Math.random()
+          if (Math.random() < sparkleChance) tmp.copy(sparkle)
+          else tmp.copy(q < 0.55 ? accent : q < 0.8 ? deep : pale)
+
+          // Depth cueing, and the reason the cloud reads as volumetric: particles
+          // are graded toward the pale shell colour. For the symmetric 2D slab the
+          // cue is |z|; a volume has a FRONT, so the cue is signed frontness —
+          // nose, brows and horn tips catch the light, the hollow back falls dark.
+          const radial = Math.min(Math.hypot(x, y) / rMax, 1)
+          let grade
+          if (volume) {
+            const front = Math.min(Math.max((z / halfD) * 0.5 + 0.5, 0), 1)
+            grade = Math.min(radial * radial * 0.4 + Math.pow(front, 1.8) * 0.55, 1) * 0.4
+          } else {
+            const zn = halfD > 0 ? Math.abs(z) / halfD : 0
+            grade = Math.min(radial * radial * 0.7 + zn * zn * zn * 0.45, 1) * 0.35
+          }
+
+          aCol[o] = tmp.r + (pale.r - tmp.r) * grade
+          aCol[o + 1] = tmp.g + (pale.g - tmp.g) * grade
+          aCol[o + 2] = tmp.b + (pale.b - tmp.b) * grade
+
+          const cls = pickClass()
+          writeCommon(
+            w,
+            rand(cls.size[0], cls.size[1]),
+            cls.soft,
+            twinkle * (0.6 + Math.random() * 0.8),
+            driftBase * (0.4 + Math.random() * 0.6),
+          )
+        }
+
+        // --- 3. Halo ---------------------------------------------------------
+        for (let i = 0; i < cloudCount; i++, w++) {
+          const o = w * 3
+          const theta = Math.random() * Math.PI * 2
+          const spread = rand(cloudSpread[0], cloudSpread[1])
+          position[o] = Math.cos(theta) * halfW * spread + (Math.random() - 0.5) * 1.4
+          position[o + 1] = Math.sin(theta) * halfH * spread + (Math.random() - 0.5) * 1.4
+          position[o + 2] = (Math.random() * 2 - 1) * halfD * (volume ? 0.9 : 2.6)
+
+          // Dimmed by baking brightness into the colour — with additive blending
+          // that is equivalent to a per-particle alpha, minus one attribute.
+          tmp.copy(Math.random() < 0.5 ? pale : accent).multiplyScalar(0.55 + Math.random() * 0.35)
+          aCol[o] = tmp.r
+          aCol[o + 1] = tmp.g
+          aCol[o + 2] = tmp.b
+
+          const cls = pickClass()
+          writeCommon(w, rand(cls.size[0], cls.size[1]), cls.soft, twinkle * (0.8 + Math.random() * 0.8), 0)
+          cloudAmp[w] = cloudAmplitude * (0.5 + Math.random())
+        }
+
+        // --- Dissolve targets -------------------------------------------------
+        for (let i = 0; i < count; i++) {
+          const theta = Math.random() * Math.PI * 2
+          const phi = Math.acos(2 * Math.random() - 1)
+          burstDir[i * 3] = Math.sin(phi) * Math.cos(theta)
+          burstDir[i * 3 + 1] = Math.sin(phi) * Math.sin(theta)
+          burstDir[i * 3 + 2] = Math.cos(phi)
+          burstDist[i] = rMax * (1.6 + Math.random() * 2.6)
+          aPhase[i] = aPhase[i] || Math.random() * Math.PI * 2
+        }
+
+        const live = new Float32Array(position)
+
+        const geometry = new THREE.BufferGeometry()
+        geometry.setAttribute('position', new THREE.BufferAttribute(live, 3))
+        geometry.setAttribute('aCol', new THREE.BufferAttribute(aCol, 3))
+        geometry.setAttribute('aSize', new THREE.BufferAttribute(aSize, 1))
+        geometry.setAttribute('aSoft', new THREE.BufferAttribute(aSoft, 1))
+        geometry.setAttribute('aPhase', new THREE.BufferAttribute(aPhase, 1))
+        geometry.setAttribute('aTw', new THREE.BufferAttribute(aTw, 1))
+        geometry.setAttribute('aDrift', new THREE.BufferAttribute(aDrift, 1))
+        // Points are displaced by the cursor and the dissolve, so the bounding
+        // sphere is never right. Frustum culling is disabled by the caller.
+        geometry.computeBoundingSphere()
+
+        return {
+          geometry,
+          count,
+          base: position,
+          live,
+          burstDir,
+          burstDist,
+          cloudAmp,
+          phase: aPhase,
+          holeJitter,
+          holeAngle,
+          bounds: { halfW, halfH, halfD },
+        }
+      }
+
+      /* =========================================================================
+       * interaction — the CPU position pass.
+       *
+       * The cursor effect is a hole PUNCH, not a repulsion field. Rather than
+       * pushing particles away with a falloff, every particle inside the radius is
+       * moved to sit exactly ON the rim of the disc, which is why it reads as a
+       * clean bite with a bright pile-up around it instead of a soft smear.
+       *
+       * Distance is measured perpendicular to the view axis, in local space, so
+       * the hole stays a circle on screen no matter how far the field has rotated.
+       * ========================================================================= */
+
+      class FieldSolver {
+        constructor(geo, options = {}) {
+          this.geo = geo
+          this.smoothed = new Float32Array(geo.base)
+          this.offsets = new Float32Array(geo.base.length)
+
+          const rMax = Math.max(geo.bounds.halfW, geo.bounds.halfH)
+          this.holeRadius = (options.holeRadius ?? 0.17) * rMax
+          this.springIn = options.springIn ?? 0.22
+          this.springOut = options.springOut ?? 0.055
+          this.restEnergy = options.restEnergy ?? 0.02
+          this.driftLerp = options.driftLerp ?? 0.08
+
+          /** True while offsets are non-zero, so we keep solving as it relaxes back. */
+          this.settling = false
+
+          /** Diagnostics, surfaced on the demo page. */
+          this.energy = 0
+          this.affected = 0
+        }
+
+        /** Advance one frame, writing into `geo.live`. */
+        update(params) {
+          const { time, burst, cursorLocal, viewAxisLocal, motion } = params
+          const {
+            base, live, burstDir, burstDist, cloudAmp, phase, holeJitter, holeAngle, count,
+          } = this.geo
+
+          const smoothed = this.smoothed
+          const offsets = this.offsets
+
+          const lerp = motion ? this.driftLerp : 1
+          const holeR = this.holeRadius
+          const holeR2 = holeR * holeR
+
+          // Orthonormal basis perpendicular to the view axis, for the degenerate
+          // case of a particle sitting exactly under the cursor.
+          const ax = viewAxisLocal.x
+          const ay = viewAxisLocal.y
+          const az = viewAxisLocal.z
+          const useYZ = Math.abs(ax) < 0.9
+          let t1x = useYZ ? 0 : -az
+          let t1y = useYZ ? -az : 0
+          let t1z = useYZ ? ay : ax
+          const t1len = Math.hypot(t1x, t1y, t1z) || 1
+          t1x /= t1len
+          t1y /= t1len
+          t1z /= t1len
+          const t2x = ay * t1z - az * t1y
+          const t2y = az * t1x - ax * t1z
+          const t2z = ax * t1y - ay * t1x
+
+          const interacting = cursorLocal !== null || this.settling
+          let energy = 0
+          let affected = 0
+
+          for (let i = 0; i < count; i++) {
+            const o = i * 3
+
+            let tx = base[o]
+            let ty = base[o + 1]
+            let tz = base[o + 2]
+
+            // Halo particles breathe slowly on their own.
+            const amp = cloudAmp[i]
+            if (amp > 0 && motion) {
+              const ph = phase[i]
+              tx += Math.sin(time * 0.13 + ph) * amp
+              ty += Math.sin(time * 0.11 + ph * 1.7) * amp
+              tz += Math.sin(time * 0.09 + ph * 2.3) * amp
+            }
+
+            // Dissolve: travel outward along a fixed random direction.
+            if (burst > 0) {
+              tx += burstDir[o] * burstDist[i] * burst
+              ty += burstDir[o + 1] * burstDist[i] * burst
+              tz += burstDir[o + 2] * burstDist[i] * burst
+            }
+
+            const sx = (smoothed[o] += (tx - smoothed[o]) * lerp)
+            const sy = (smoothed[o + 1] += (ty - smoothed[o + 1]) * lerp)
+            const sz = (smoothed[o + 2] += (tz - smoothed[o + 2]) * lerp)
+
+            if (!interacting) {
+              live[o] = sx
+              live[o + 1] = sy
+              live[o + 2] = sz
+              continue
+            }
+
+            let wantX = 0
+            let wantY = 0
+            let wantZ = 0
+            let inside = false
+
+            if (cursorLocal) {
+              const dx = sx - cursorLocal.x
+              const dy = sy - cursorLocal.y
+              const dz = sz - cursorLocal.z
+
+              // Drop the component along the view axis: what remains is the true
+              // on-screen distance, independent of depth.
+              const along = dx * ax + dy * ay + dz * az
+              const px = dx - along * ax
+              const py = dy - along * ay
+              const pz = dz - along * az
+              const d2 = px * px + py * py + pz * pz
+
+              if (d2 < holeR2) {
+                inside = true
+                affected++
+                const target = holeR * holeJitter[i]
+                if (d2 > 1e-6) {
+                  // Push out to land exactly on the rim.
+                  const k = target / Math.sqrt(d2) - 1
+                  wantX = px * k
+                  wantY = py * k
+                  wantZ = pz * k
+                } else {
+                  // Dead centre — no direction to push along, so pick one.
+                  const a = holeAngle[i]
+                  const c = Math.cos(a)
+                  const s = Math.sin(a)
+                  wantX = (t1x * c + t2x * s) * target
+                  wantY = (t1y * c + t2y * s) * target
+                  wantZ = (t1z * c + t2z * s) * target
+                }
+              }
+            }
+
+            // Asymmetric spring: snap in ~4x faster than it relaxes out. This is
+            // what gives the interaction its viscous, trailing feel.
+            const k = inside ? this.springIn : this.springOut
+            const ox = (offsets[o] += (wantX - offsets[o]) * k)
+            const oy = (offsets[o + 1] += (wantY - offsets[o + 1]) * k)
+            const oz = (offsets[o + 2] += (wantZ - offsets[o + 2]) * k)
+
+            energy += ox * ox + oy * oy + oz * oz
+
+            live[o] = sx + ox
+            live[o + 1] = sy + oy
+            live[o + 2] = sz + oz
+          }
+
+          this.energy = energy
+          this.affected = affected
+
+          if (interacting && !cursorLocal && energy < this.restEnergy) {
+            // Fully relaxed: zero the offsets and stop solving the interaction until
+            // the cursor comes back. A real idle path, not just a small number.
+            offsets.fill(0)
+            this.settling = false
+          } else {
+            this.settling = interacting
+          }
+
+          return true
+        }
+      }
+
+      /* =========================================================================
+       * scene — the component itself.
+       * ========================================================================= */
+
+      const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v)
+      const smoothstep = (t) => t * t * (3 - 2 * t)
+
+      /** Perceptually even dolly: interpolate distance in log space, not linearly. */
+      const dollyAt = (t, far, near) =>
+        far * Math.pow(near / far, 0.7 * t + 0.3 * smoothstep(t))
+
+      function radialSprite() {
+        const c = document.createElement('canvas')
+        c.width = c.height = 64
+        const ctx = c.getContext('2d')
+        const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32)
+        g.addColorStop(0, 'rgba(255,255,255,1)')
+        g.addColorStop(0.35, 'rgba(255,255,255,.8)')
+        g.addColorStop(1, 'rgba(255,255,255,0)')
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, 64, 64)
+        return new THREE.CanvasTexture(c)
+      }
+
+      function starLayer(count, rMin, rMax, size, accentChance, sprite) {
+        const pos = new Float32Array(count * 3)
+        const col = new Float32Array(count * 3)
+        const dim = new THREE.Color('#dddddd')
+        const accent = new THREE.Color('#2ee6a0')
+        const grey = new THREE.Color('#888888')
+
+        for (let i = 0; i < count; i++) {
+          const r = rMin + Math.random() * (rMax - rMin)
+          const theta = Math.random() * Math.PI * 2
+          const phi = Math.acos(2 * Math.random() - 1)
+          pos[i * 3] = r * Math.sin(phi) * Math.cos(theta)
+          pos[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.7
+          // Pushed behind the field so it never intersects the star.
+          pos[i * 3 + 2] = -Math.abs(r * Math.cos(phi)) * 0.6 - 4
+
+          const c = Math.random() < accentChance ? accent : Math.random() < 0.5 ? dim : grey
+          col[i * 3] = c.r
+          col[i * 3 + 1] = c.g
+          col[i * 3 + 2] = c.b
+        }
+
+        const g = new THREE.BufferGeometry()
+        g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+        g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+
+        return new THREE.Points(
+          g,
+          new THREE.PointsMaterial({
+            size,
+            map: sprite,
+            vertexColors: true,
+            transparent: true,
+            opacity: 0.85,
+            depthWrite: false,
+            blending: THREE.AdditiveBlending,
+            sizeAttenuation: true,
+          }),
+        )
+      }
+
+      /** Last-resort static silhouette when WebGL is unavailable. */
+      function svgFallback(shape) {
+        const NS = 'http://www.w3.org/2000/svg'
+        const svg = document.createElementNS(NS, 'svg')
+        const { halfW, halfH } = shape.bounds()
+        svg.setAttribute('viewBox', `${-halfW * 1.2} ${-halfH * 1.2} ${halfW * 2.4} ${halfH * 2.4}`)
+        svg.setAttribute('class', 'pf-fallback')
+        svg.setAttribute('aria-hidden', 'true')
+
+        const defs = document.createElementNS(NS, 'defs')
+        const grad = document.createElementNS(NS, 'radialGradient')
+        grad.setAttribute('id', 'pf-fb')
+        for (const [offset, color] of [
+          ['0%', '#0c4632'],
+          ['45%', '#14805a'],
+          ['82%', '#2ee6a0'],
+          ['100%', '#9ff5d4'],
+        ]) {
+          const stop = document.createElementNS(NS, 'stop')
+          stop.setAttribute('offset', offset)
+          stop.setAttribute('stop-color', color)
+          grad.appendChild(stop)
+        }
+        defs.appendChild(grad)
+        svg.appendChild(defs)
+
+        // Trace the outline from the sampler itself, so any shape gets a fallback.
+        // A volume sampler has no single outline — flatten its feature curves to
+        // dots instead of pretending they form one closed path.
+        const stride = isVolume(shape) ? 3 : 2
+        const pts = isVolume(shape) ? shape.edge(240) : shape.rim(240)
+        const path = document.createElementNS(NS, 'path')
+        if (isVolume(shape)) {
+          let d = ''
+          for (let i = 0; i < 240; i++) {
+            const x = pts[i * stride].toFixed(2)
+            const y = (-pts[i * stride + 1]).toFixed(2)
+            d += `M${x} ${y}h0.06`
+          }
+          path.setAttribute('d', d)
+          path.setAttribute('stroke-linecap', 'round')
+        } else {
+          let d = ''
+          for (let i = 0; i < 240; i++) {
+            d += (i ? 'L' : 'M') + pts[i * 2].toFixed(2) + ' ' + (-pts[i * 2 + 1]).toFixed(2)
+          }
+          path.setAttribute('d', d + 'Z')
+        }
+        path.setAttribute('fill', 'url(#pf-fb)')
+        path.setAttribute('stroke', '#9ff5d4')
+        path.setAttribute('stroke-width', '0.06')
+        path.setAttribute('stroke-opacity', '0.8')
+        svg.appendChild(path)
+        return svg
+      }
+
+      function createParticleField(host, options = {}) {
+        const motionOn = !prefersReducedMotion
+        // Mutable and exposed on the returned field, so motion can be retuned live
+        // without rebuilding geometry or dropping the GL context.
+        const motion = {
+          autoSpin: 0,
+          sway: 0.6,
+          swaySpeed: 0.16,
+          parallaxReach: 0.9,
+          scrollSpin: Math.PI * 1.15,
+          tilt: 0.2,
+          wobble: 0.07,
+          dolly: [106, 16],
+          lifeRange: [0.05, 0.75],
+          driftFade: [0.1, 0.6],
+          wander: [0.8, 0.55],
+          oscillation: [0.08, 0.05],
+          driftLerp: 0.05,
+          ...options.motion,
+        }
+
+        const fov = options.fov ?? 50
+        const cameraZ = options.cameraZ ?? 16
+        const maxDpr = options.maxDpr ?? 2
+
+        let shape = options.shape ?? superellipse()
+
+        // --- WebGL, with a real fallback -------------------------------------
+        let renderer = null
+        try {
+          renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+          if (!renderer.getContext()) renderer = null
+        } catch {
+          renderer = null
+        }
+
+        if (!renderer) {
+          const fb = svgFallback(shape)
+          host.appendChild(fb)
+          const noop = () => {}
+          return {
+            scene: new THREE.Scene(),
+            camera: new THREE.PerspectiveCamera(),
+            renderer: null,
+            group: new THREE.Group(),
+            material: createMaterial(),
+            webgl: false,
+            motion,
+            step: noop,
+            setCalmTargets: noop,
+            setShape: noop,
+            stats: () => ({ count: 0, fps: 0, energy: 0, affected: 0, webgl: false }),
+            destroy: () => fb.remove(),
+          }
+        }
+
+        // A collapsed viewport is a real state — a hidden tab, a `display: none`
+        // ancestor, a panel animating from zero height. Left unclamped it divides
+        // by zero: the aspect becomes NaN, which poisons the projection matrix,
+        // and the drawing buffer height becomes 0, which pins every point to the
+        // minimum size permanently. Neither recovers, so clamp at the source.
+        const viewW = () => Math.max(1, innerWidth)
+        const viewH = () => Math.max(1, innerHeight)
+
+        renderer.outputColorSpace = THREE.SRGBColorSpace
+        renderer.setPixelRatio(Math.min(devicePixelRatio, maxDpr))
+        renderer.setSize(viewW(), viewH())
+        host.appendChild(renderer.domElement)
+
+        const scene = new THREE.Scene()
+        const camera = new THREE.PerspectiveCamera(fov, viewW() / viewH(), 0.1, 300)
+        camera.position.z = cameraZ
+
+        const sprite = radialSprite()
+        let bgA = null
+        let bgB = null
+        if (options.starfield !== false) {
+          bgA = starLayer(900, 30, 90, 0.5, 0.06, sprite)
+          bgB = starLayer(700, 25, 80, 0.32, 0.1, sprite)
+          scene.add(bgA, bgB)
+        }
+
+        const group = new THREE.Group()
+        scene.add(group)
+
+        const material = createMaterial({ motion: motionOn, ...options.material })
+
+        let geometryDefaults = options.geometry
+        let solverDefaults = options.solver
+
+        // Phones are limited by fill rate and thermal budget long before the shader
+        // gets interesting. Spend less by drawing fewer particles rather than by
+        // degrading the effect — the look survives a smaller count, but not a
+        // cheaper sprite.
+        const isNarrow = () => innerWidth > 0 && innerWidth < (options.mobileBreakpoint ?? 768)
+        const withMobileBudget = (g) => {
+          if (!isNarrow()) return g
+          const base = g ?? {}
+          const k = options.mobileCountScale ?? 0.6
+          return {
+            ...base,
+            count: Math.round((base.count ?? 6000) * k),
+            cloudCount: Math.round((base.cloudCount ?? 260) * k),
+          }
+        }
+
+        let geo = buildGeometry(shape, withMobileBudget(geometryDefaults))
+        let solver = new FieldSolver(geo, solverDefaults)
+        let points = new THREE.Points(geo.geometry, material)
+        points.frustumCulled = false // positions are displaced every frame
+        group.add(points)
+
+        // --- Pointer ----------------------------------------------------------
+        const ndc = new THREE.Vector2(99, 99)
+        let pointerLive = false
+
+        const onPointerMove = (e) => {
+          ndc.set((e.clientX / viewW()) * 2 - 1, -(e.clientY / viewH()) * 2 + 1)
+          pointerLive = motionOn
+        }
+        const onPointerOut = (e) => {
+          if (!e.relatedTarget) pointerLive = false
+        }
+        window.addEventListener('pointermove', onPointerMove, { passive: true })
+        document.addEventListener('pointerout', onPointerOut)
+
+        // --- Resize -----------------------------------------------------------
+        const syncScale = () => {
+          // Sizes are expressed against half the drawing-buffer height, so a point
+          // occupies the same fraction of the screen at any resolution or DPR.
+          material.uniforms.uScale.value = Math.max(1, renderer.domElement.height) * 0.5
+          material.uniforms.uAspect.value = camera.aspect
+        }
+        const onResize = () => {
+          camera.aspect = viewW() / viewH()
+          camera.updateProjectionMatrix()
+          renderer.setSize(viewW(), viewH())
+          syncScale()
+          measureCalm()
+        }
+        syncScale()
+        window.addEventListener('resize', onResize)
+
+        // --- Calm rects -------------------------------------------------------
+        let calmTargets = []
+        let calmBoxes = []
+
+        function measureCalm() {
+          // Measured on resize only — never inside the frame loop, so this can
+          // never cause a forced reflow mid-render.
+          calmBoxes = calmTargets.slice(0, 2).map((el) => {
+            const r = el.getBoundingClientRect()
+            return {
+              cx: r.left + r.width / 2,
+              cy: r.top + r.height / 2,
+              hw: r.width / 2,
+              hh: r.height / 2,
+            }
+          })
+        }
+
+        const drive =
+          options.drive ??
+          ((s) => {
+            const max = document.documentElement.scrollHeight - s.H
+            return { progress: max > 0 ? clamp01(s.y / max) : 0, burst: 0 }
+          })
+
+        // --- Frame ------------------------------------------------------------
+        const viewAxis = new THREE.Vector3(0, 0, 1)
+        const invRot = new THREE.Matrix4()
+        const rayDir = new THREE.Vector3()
+        const hit = new THREE.Vector3()
+        const cursorLocal = new THREE.Vector3()
+
+        let driftX = 0
+        let driftY = 0
+        let fps = 0
+        let frames = 0
+        let fpsClock = 0
+
+        function step(state) {
+          const { time, dt } = state
+          const { progress, burst } = drive(state)
+          const p = clamp01(progress)
+          const b = clamp01(burst)
+
+          frames++
+          fpsClock += dt
+          if (fpsClock >= 0.5) {
+            fps = frames / fpsClock
+            frames = 0
+            fpsClock = 0
+          }
+
+          const [dollyFar, dollyNear] = motion.dolly
+          const [lifeFrom, lifeTo] = motion.lifeRange
+          const [fadeFrom, fadeTo] = motion.driftFade
+
+          // --- Dolly ---
+          const distance = dollyAt(p, dollyFar, dollyNear)
+          const groupZ = cameraZ - distance
+
+          // --- Rotation ---
+          group.rotation.y =
+            (motionOn ? time * motion.autoSpin + Math.sin(time * motion.swaySpeed) * motion.sway : 0) +
+            p * motion.scrollSpin
+          group.rotation.x = motion.tilt + (motionOn ? Math.sin(time * 0.09) * motion.wobble : 0)
+
+          // --- Parallax, clamped so the field can never leave the viewport ---
+          const halfHWorld = Math.tan((fov / 2) * (Math.PI / 180)) * distance
+          const halfWWorld = halfHWorld * camera.aspect
+          // Bounded twice: it must not leave the viewport, and it must not drift
+          // further than a fraction of its own size. Without the second bound a
+          // distant field roams across half the screen and reads as unmoored.
+          const spanX = Math.max(
+            0,
+            Math.min(halfWWorld - geo.bounds.halfW * 0.9, geo.bounds.halfW * motion.parallaxReach),
+          )
+          const spanY = Math.max(
+            0,
+            Math.min(halfHWorld - geo.bounds.halfH * 0.9, geo.bounds.halfH * motion.parallaxReach),
+          )
+
+          let wantX = 0
+          let wantY = 0
+          if (motionOn) {
+            if (hasFinePointer && pointerLive && Math.abs(ndc.x) <= 1) {
+              wantX = ndc.x * spanX
+              wantY = ndc.y * spanY
+            } else {
+              // Layered sines at unrelated frequencies, so the path never visibly loops.
+              wantX =
+                (Math.sin(time * 0.26 + 2.4) * 0.68 + Math.sin(time * 0.071) * 0.32) *
+                spanX * motion.wander[0]
+              wantY =
+                (Math.sin(time * 0.31 + 0.7) * 0.58 + Math.cos(time * 0.047) * 0.42) *
+                spanY * motion.wander[1]
+            }
+            wantX += Math.sin(time * 0.5) * spanX * motion.oscillation[0]
+            wantY += Math.cos(time * 0.37) * spanY * motion.oscillation[1]
+            wantX = Math.max(-spanX, Math.min(spanX, wantX))
+            wantY = Math.max(-spanY, Math.min(spanY, wantY))
+          }
+          driftX += (wantX - driftX) * motion.driftLerp
+          driftY += (wantY - driftY) * motion.driftLerp
+
+          const fade = 1 - smoothstep(clamp01((p - fadeFrom) / (fadeTo - fadeFrom || 1)))
+          group.position.set(driftX * fade, driftY * fade, groupZ)
+          group.updateMatrixWorld()
+
+          // --- Materialise / dissolve ---
+          const life = motionOn
+            ? 0.18 + 0.82 * smoothstep(clamp01((p - lifeFrom) / (lifeTo - lifeFrom || 1)))
+            : 1
+          material.uniforms.uLife.value = life
+          material.uniforms.uBurst.value = b
+          material.uniforms.uTime.value = time
+          material.uniforms.uOpacity.value = 0.95 - b * 0.6
+          // A floor of ~1.4 device px keeps distant dust from flickering into nothing.
+          material.uniforms.uMinPx.value = 1.4 * Math.min(devicePixelRatio, maxDpr)
+
+          // --- Cursor into the field's local space ---
+          let cursor = null
+          if (motionOn && hasFinePointer && pointerLive && p >= 0.98 && b < 0.5 && Math.abs(ndc.x) <= 1) {
+            rayDir.set(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position).normalize()
+            if (Math.abs(rayDir.z) > 1e-5) {
+              // Intersect the plane the field currently sits on.
+              const t = (groupZ - camera.position.z) / rayDir.z
+              if (t > 0) {
+                hit.copy(camera.position).addScaledVector(rayDir, t)
+                cursor = group.worldToLocal(cursorLocal.copy(hit))
+              }
+            }
+          }
+          invRot.makeRotationFromEuler(group.rotation).invert()
+          viewAxis.set(0, 0, 1).applyMatrix4(invRot).normalize()
+
+          solver.update({
+            time, burst: b, cursorLocal: cursor, viewAxisLocal: viewAxis, motion: motionOn,
+          })
+          geo.geometry.attributes.position.needsUpdate = true
+
+          // --- Calm rects → clip space ---
+          if (calmBoxes.length > 0) {
+            const w = viewW()
+            const h = viewH()
+            const k = 2 / h
+            const a = calmBoxes[0]
+            const bx = calmBoxes[1] ?? a
+            material.uniforms.uCalmA.value.set(
+              (a.cx - w / 2) * k, (h / 2 - a.cy) * k, a.hw * k, a.hh * k,
+            )
+            material.uniforms.uCalmB.value.set(
+              (bx.cx - w / 2) * k, (h / 2 - bx.cy) * k, bx.hw * k, bx.hh * k,
+            )
+            material.uniforms.uCalmOn.value = 1 - clamp01((p - 0.35) / 0.2)
+          } else {
+            material.uniforms.uCalmOn.value = 0
+          }
+
+          if (motionOn) {
+            if (bgA) bgA.rotation.y = time * 0.004
+            if (bgB) bgB.rotation.y = -time * 0.006
+            if (bgA) bgA.rotation.x = ndc.y * 0.02
+            if (bgB) bgB.rotation.x = ndc.y * 0.03
+          }
+
+          renderer.render(scene, camera)
+        }
+
+        const unsubscribe = subscribe(step)
+
+        function setShape(next, geometryOptions, solverOptions) {
+          shape = next
+          if (geometryOptions) geometryDefaults = geometryOptions
+          if (solverOptions) solverDefaults = solverOptions
+
+          group.remove(points)
+          geo.geometry.dispose()
+
+          geo = buildGeometry(shape, withMobileBudget(geometryDefaults))
+          solver = new FieldSolver(geo, solverDefaults)
+          points = new THREE.Points(geo.geometry, material)
+          points.frustumCulled = false
+          group.add(points)
+        }
+
+        return {
+          scene,
+          camera,
+          renderer,
+          group,
+          material,
+          motion,
+          webgl: true,
+          step,
+
+          setCalmTargets(elements) {
+            calmTargets = elements
+            measureCalm()
+          },
+
+          setShape,
+
+          stats: () => ({
+            count: geo.count,
+            fps,
+            energy: solver.energy,
+            affected: solver.affected,
+            webgl: true,
+          }),
+
+          destroy() {
+            unsubscribe()
+            window.removeEventListener('resize', onResize)
+            window.removeEventListener('pointermove', onPointerMove)
+            document.removeEventListener('pointerout', onPointerOut)
+            geo.geometry.dispose()
+            material.dispose()
+            sprite.dispose()
+            for (const bg of [bgA, bgB]) {
+              if (!bg) continue
+              bg.geometry.dispose()
+              bg.material.dispose()
+            }
+            renderer.domElement.remove()
+            renderer.dispose()
+          },
+        }
+      }
+
+      /* =========================================================================
+       * demo — the page itself.
+       * ========================================================================= */
+
+      // --- Smooth scroll ------------------------------------------------------
+      // Driven from the shared frame bus rather than its own rAF, so the whole
+      // page runs on exactly one loop and the WebGL motion reads the same eased
+      // scroll value the DOM is using.
+      if (!prefersReducedMotion) {
+        const lenis = new Lenis({ autoRaf: false, smoothWheel: true })
+        subscribe(() => lenis.raf(performance.now()))
+        setScrollSource(() => lenis.scroll)
+      }
+
+      // --- Shapes -------------------------------------------------------------
+      const BOLT = 'M12 2 L4 13 H10 L9 22 L20 9 H13 L14 2 Z'
+      // Opposite winding on the inner circle punches a hole under the nonzero fill
+      // rule — a good check that the rasterising sampler handles subpaths.
+      const RING =
+        'M10,50 a40,40 0 1,0 80,0 a40,40 0 1,0 -80,0 M25,50 a25,25 0 1,1 50,0 a25,25 0 1,1 -50,0'
+
+      const params = {
+        shape: 'Hannya mask (3D)',
+        hornLength: 1,
+        mouthOpen: 1,
+        n: 3.7,
+        aspect: 1.05,
+        radius: 5.3,
+        thickness: 0.09,
+        count: 6000,
+        rimFraction: 0.26,
+        sizeMultiplier: 1,
+        bigMix: 0.05,
+        sway: 0.15,
+        autoSpin: 0.18,
+        holeRadius: 0.17,
+        springIn: 0.22,
+        springOut: 0.055,
+      }
+
+      function makeShape() {
+        switch (params.shape) {
+          case 'Hannya mask (3D)':
+            return hannya({ hornLength: params.hornLength, mouthOpen: params.mouthOpen })
+          case 'Bolt (SVG)':
+            return svgPath(BOLT, { radius: params.radius })
+          case 'Ring (SVG, has a hole)':
+            return svgPath(RING, { radius: params.radius })
+          default:
+            return superellipse({ n: params.n, aspect: params.aspect, radius: params.radius })
+        }
+      }
+
+      function makeClasses() {
+        // Hold the medium share fixed and trade the crisp class against the bokeh
+        // class, so the slider reads as "more glow" rather than "more particles".
+        const big = params.bigMix
+        const med = 0.25
+        return [
+          { mix: Math.max(0, 1 - med - big), size: [0.08, 0.135], soft: 0.1 },
+          { mix: med, size: [0.16, 0.25], soft: 0.45 },
+          { mix: big, size: [0.32, 0.58], soft: 1.0 },
+        ]
+      }
+
+      const geometryOptions = () => ({
+        count: params.count,
+        rimFraction: params.rimFraction,
+        thickness: params.thickness,
+        classes: makeClasses(),
+      })
+
+      const solverOptions = () => ({
+        holeRadius: params.holeRadius,
+        springIn: params.springIn,
+        springOut: params.springOut,
+      })
+
+      // --- Field --------------------------------------------------------------
+      const host = document.getElementById('field')
+
+      const field = createParticleField(host, {
+        shape: makeShape(),
+        geometry: geometryOptions(),
+        solver: solverOptions(),
+        motion: { sway: params.sway, autoSpin: params.autoSpin },
+        drive: (state) => {
+          const max = document.documentElement.scrollHeight - state.H
+          const t = max > 0 ? clamp01(state.y / max) : 0
+          return {
+            // Arrival occupies the first third; the dissolve, the last quarter.
+            progress: clamp01(t / 0.34),
+            burst: clamp01((t - 0.76) / 0.24),
+          }
+        },
+      })
+
+      // Handy in the console, and lets a headless check drive frames directly.
+      window.field = field
+
+      const title = document.getElementById('title')
+      const lede = document.getElementById('lede')
+      if (title && lede) field.setCalmTargets([title, lede])
+
+      // --- Controls -----------------------------------------------------------
+      if (field.webgl) {
+        const gui = new GUI({ title: 'Particle Field' })
+        const rebuild = () => {
+          field.setShape(makeShape(), geometryOptions(), solverOptions())
+          // Continuous spin is safe only for shapes with real depth — a flat shape
+          // collapses to a line edge-on, so switching back also switches motion.
+          const volumetric = params.shape === 'Hannya mask (3D)'
+          params.autoSpin = volumetric ? 0.18 : 0
+          params.sway = volumetric ? 0.15 : 0.6
+          field.motion.autoSpin = params.autoSpin
+          field.motion.sway = params.sway
+          gui.controllersRecursive().forEach((c) => c.updateDisplay())
+        }
+
+        const shapeFolder = gui.addFolder('Shape')
+        shapeFolder
+          .add(params, 'shape', [
+            'Hannya mask (3D)',
+            'Superellipse star',
+            'Bolt (SVG)',
+            'Ring (SVG, has a hole)',
+          ])
+          .name('silhouette')
+          .onChange(rebuild)
+        shapeFolder.add(params, 'hornLength', 0.5, 1.6, 0.05).name('horns (mask)').onFinishChange(rebuild)
+        shapeFolder.add(params, 'mouthOpen', 0.6, 1.8, 0.05).name('grimace (mask)').onFinishChange(rebuild)
+        shapeFolder.add(params, 'n', 2, 8, 0.05).name('exponent (star)').onFinishChange(rebuild)
+        shapeFolder.add(params, 'aspect', 0.6, 1.6, 0.01).onFinishChange(rebuild)
+        shapeFolder.add(params, 'thickness', 0, 0.6, 0.005).name('slab depth').onFinishChange(rebuild)
+        shapeFolder.add(params, 'count', 1000, 20000, 500).onFinishChange(rebuild)
+        shapeFolder.add(params, 'rimFraction', 0, 0.8, 0.01).name('outline share').onFinishChange(rebuild)
+
+        const lookFolder = gui.addFolder('Look')
+        lookFolder
+          .add(params, 'sizeMultiplier', 0.2, 3, 0.05)
+          .name('size')
+          .onChange((v) => (field.material.uniforms.uSizeMul.value = v))
+        lookFolder.add(params, 'bigMix', 0, 0.4, 0.005).name('bokeh share').onFinishChange(rebuild)
+
+        const motionFolder = gui.addFolder('Motion')
+        motionFolder
+          .add(params, 'sway', 0, 1.5, 0.01)
+          .name('yaw sway (rad)')
+          .onChange((v) => (field.motion.sway = v))
+        motionFolder
+          .add(params, 'autoSpin', 0, 0.4, 0.005)
+          .name('continuous spin')
+          .onChange((v) => (field.motion.autoSpin = v))
+
+        const cursorFolder = gui.addFolder('Cursor')
+        cursorFolder.add(params, 'holeRadius', 0.02, 0.5, 0.005).name('hole radius').onFinishChange(rebuild)
+        cursorFolder.add(params, 'springIn', 0.02, 1, 0.01).onFinishChange(rebuild)
+        cursorFolder.add(params, 'springOut', 0.005, 0.5, 0.005).onFinishChange(rebuild)
+        cursorFolder.close()
+      }
+
+      // --- Stats --------------------------------------------------------------
+      const statsEl = document.getElementById('stats')
+      let statClock = 0
+
+      subscribe((state) => {
+        statClock += state.dt
+        if (statClock < 0.25) return
+        statClock = 0
+
+        const s = field.stats()
+        if (!s.webgl) {
+          statsEl.textContent = 'WebGL unavailable — SVG fallback'
+          return
+        }
+        statsEl.textContent =
+          `${s.fps.toFixed(0).padStart(3)} fps\n` +
+          `${s.count.toLocaleString()} particles\n` +
+          `${s.affected.toString().padStart(4)} displaced\n` +
+          `${s.energy.toFixed(2).padStart(6)} energy` +
+          (s.energy === 0 ? '  (idle)' : '')
+      })
+    </script>
+  </body>
+</html>

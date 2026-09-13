@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.vite/
+.img2threejs/
+.DS_Store
+*.log
+.env
+.env.*

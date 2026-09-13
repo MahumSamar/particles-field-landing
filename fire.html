@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Fire Mask</title>
+    <link rel="stylesheet" href="/src/fire/style.css" />
+  </head>
+  <body>
+    <div id="stage"></div>
+
+    <header class="hud">
+      <span class="hud-title">Fire Mask</span>
+      <nav class="hud-nav">
+        <a href="/index.html">Particle Field</a>
+        <span aria-hidden="true">/</span>
+        <a href="/fire.html" class="on">Fire Mask</a>
+      </nav>
+    </header>
+
+    <div id="unsupported" hidden>
+      <h1>WebGPU required</h1>
+      <p>
+        This sandbox renders through <code>WebGPURenderer</code> and TSL compute-free screen
+        passes. Your browser did not expose <code>navigator.gpu</code>.
+      </p>
+      <p class="muted">Chrome or Edge 113+, or Safari 18+ with WebGPU enabled.</p>
+    </div>
+
+    <div id="stats"></div>
+    <script type="module" src="/src/fire/main.ts"></script>
+  </body>
+</html>

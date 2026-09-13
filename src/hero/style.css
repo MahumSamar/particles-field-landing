@@ -1,0 +1,412 @@
+:root {
+  --bg: #070707;
+  --ink: #f6efda;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; background: var(--bg); }
+
+body {
+  color: var(--ink);
+  font-family: 'Inter Tight', Inter, ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  /* The hero is pinned; the page scrolls so the mask can grow into the frame. */
+  overflow-x: hidden;
+}
+
+/* The 3D render fills the frame and bleeds slightly above, as in the design. */
+#stage { position: fixed; inset: -28px 0 0 0; z-index: 0; }
+.scroll-range { height: 210vh; pointer-events: none; }
+#stage canvas { display: block; }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* A top strip, not a full-bleed layer. Aligned to the logotype's INK, not its
+   line box: the glyph ink starts 0.049em below the box top (measured via
+   canvas text metrics), which is why box-centring always left the burger
+   visually lower — and by more at bigger sizes. flex-start puts the burger's
+   top edge at the padding line; .mark's negative top margin pulls the ink up
+   to the same line.
+
+   z-index 70 is above every section (slides 10-40, film 50, finale 60), so
+   both the burger and the logotype simply live here and are always on top.
+   That is the whole mechanism — no per-section copies, nothing to sync. */
+.hero-chrome {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  /* One 24px gutter on both sides, mirroring the left column. */
+  padding: clamp(0.8rem, 1.6vw, 1.8rem) 24px 0 24px;
+  pointer-events: none;
+}
+
+/* Sits above the canvas, so the mask passes behind it at any scroll position. */
+.lede {
+  position: fixed;
+  left: 24px;
+  top: clamp(180px, 37.4vh, 420px);
+  z-index: 3;
+  width: 305px;
+  font-size: 14px;
+  line-height: 17px;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+
+.menu {
+  flex: none;
+  width: 24px; height: 24px;
+  display: grid; place-items: center;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  pointer-events: auto;
+  color: var(--ink);
+  opacity: 0.9;
+  transition: opacity 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.menu:hover { opacity: 1; }
+.menu svg rect { fill: currentColor; }
+
+/* 面打 — "mask carving". Noto Serif JP carries the classical stroke contrast a
+   Latin script face cannot give these glyphs.
+
+   ONE element, living in the fixed header, so it is always on top of every
+   section and there is nothing to keep in sync. Two optical corrections, both
+   measured: the glyph ink starts 0.049em below its line box, so the negative
+   top margin lands the INK on the header's padding line beside the burger;
+   letter-spacing trails 0.06em after the last glyph, so the negative right
+   margin lands the ink at the same 24px as the left gutter rather than
+   visually short of it. */
+.mark {
+  flex: none;
+  margin-top: -0.049em;
+  margin-right: -0.06em;
+  font-family: 'Noto Serif JP', 'Hiragino Mincho ProN', 'Yu Mincho', serif;
+  font-weight: 500;
+  font-size: clamp(3.2rem, 6.6vw, 7rem);
+  line-height: 0.92;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ELEMENT SLIDES — the diagonal cut, ported from the costa-serenade archive.
+   An overflow-hidden box grows in WIDTH while rotating toward 45°; the inner
+   counter-rotates by reading the same variable, so the seam is diagonal but
+   the picture stays upright. --span is 0.707×(100vw+100vh) plus margin: the
+   strip reaches fullscreen exactly at --reveal 1 (an eyeballed 220vmax closes
+   at ~0.53 and wastes half the move).
+   ═══════════════════════════════════════════════════════════════════════════ */
+.slide {
+  --reveal: 0;
+  --copy: 0;
+  --zoom: 0;
+  --exit: 0;
+  /* 0.75, not the geometric minimum 0.7071: the corner slack at the minimum
+     is single-digit pixels (measured 6-18px across viewports), and a one-frame
+     jitter across the coverage threshold flickered the bottom-left corner.
+     The extra width buys ~50px of slack; coverage completes a touch before
+     reveal 1 while the rotation carries motion through to the end. */
+  --span: calc(75vw + 75vh);
+
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: calc(var(--reveal) * var(--span));
+  height: var(--span);
+  transform: translate(-50%, -50%) rotate(calc(var(--reveal) * 45deg));
+  overflow: hidden;
+  background: var(--slide-bg);
+  pointer-events: none;
+  visibility: hidden;
+  will-change: width, transform;
+}
+.slide__inner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100vw;
+  height: 100vh;
+  /* Reads the SAME --reveal as the frame's rotation: one source of truth, the
+     two can never drift. */
+  transform: translate(-50%, -50%) rotate(calc(var(--reveal) * -45deg));
+  background: var(--slide-bg);
+}
+.slide__mask {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  height: 100%;
+  /* --exit (air only, as the film rises) pulls the mask back and dims it. */
+  transform: translate(-50%, -50%)
+    scale(calc((1 + var(--zoom) * 0.24) * (1 - var(--exit) * 0.16)));
+  filter: brightness(calc(1 - var(--exit) * 0.55));
+  will-change: transform;
+  user-select: none;
+}
+
+/* Copy — geometry from the 1470×900 Figma frame, verticals as viewport
+   fractions (heading 296/900, id 648/900), the shared 24px gutter, and the
+   description/chip on a common 33px baseline. Each item eases over its own
+   sub-window of --copy, so they arrive in sequence as the scroll advances. */
+/* Arrival is --k (per-item window of --copy); departure is --xk (per-item
+   window of --exit, REVERSE order: chip first, heading last), drifting up as
+   it leaves. Only the air slide ever gets a non-zero --exit. */
+.slide__item {
+  opacity: calc(var(--k) * (1 - var(--xk, 0)));
+  transform: translateY(calc((1 - var(--k)) * 22px - var(--xk, 0) * 14px));
+}
+.slide__head { --xk: clamp(0, calc((var(--exit) - 0.45) / 0.3), 1); }
+.slide__id { --xk: clamp(0, calc((var(--exit) - 0.3) / 0.3), 1); }
+.slide__desc { --xk: clamp(0, calc((var(--exit) - 0.15) / 0.3), 1); }
+.slide__chip { --xk: clamp(0, calc(var(--exit) / 0.3), 1); }
+.slide__head {
+  --k: clamp(0, calc(var(--copy) / 0.35), 1);
+  position: absolute;
+  left: 24px;
+  top: 32.9vh;
+  width: min(381px, 46vw);
+  font-size: clamp(34px, 3.4vw, 50px);
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+}
+.slide__id {
+  --k: clamp(0, calc((var(--copy) - 0.22) / 0.33), 1);
+  position: absolute;
+  left: 24px;
+  /* Bottom-anchored, as in the Figma frame (232px at the 900px design height);
+     proportional below that so it clears both the heading above and the
+     description below on short viewports. */
+  bottom: min(232px, 25.8vh);
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.slide__desc {
+  --k: clamp(0, calc((var(--copy) - 0.42) / 0.33), 1);
+  position: absolute;
+  left: 24px;
+  bottom: 33px;
+  width: 305px;
+  font-size: 14px;
+  line-height: 17px;
+  letter-spacing: -0.03em;
+  text-wrap: pretty;
+}
+.slide__chip {
+  --k: clamp(0, calc((var(--copy) - 0.6) / 0.4), 1);
+  position: absolute;
+  right: 24px; /* the shared gutter, not the Figma 53px — one rhythm everywhere */
+  bottom: 33px;
+  width: 229px;
+  height: 128px;
+  overflow: hidden;
+}
+.slide__chip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FILM — the workshop clip. Fixed above the slides; rises from the bottom on
+   --enter, holds while --draw traces the outline and --fcopy brings the copy.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.film {
+  --enter: 0;
+  --fcopy: 0;
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: #030303;
+  transform: translate3d(0, calc((1 - var(--enter)) * 100vh), 0);
+  overflow: hidden;
+  pointer-events: none;
+  visibility: hidden;
+  will-change: transform;
+}
+.film__video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* Never lit before it has painted: 'loadeddata' sets data-ready, so the
+     section cannot slide up as a black rectangle with a popping video. */
+  opacity: 0;
+  transition: opacity 400ms linear;
+}
+.film[data-ready] .film__video { opacity: 1; }
+/* The 30% wash from the design frame, so the copy holds against the footage. */
+.film__scrim { position: absolute; inset: 0; background: rgba(3, 3, 3, 0.3); }
+
+.film__item {
+  opacity: var(--fk);
+  transform: translateY(calc((1 - var(--fk)) * 22px));
+}
+/* Same scale as the slides' name (.slide__head, verbatim: 381px box,
+   clamp(34px, 3.4vw, 50px)) — this screen borrows the site's one heading
+   voice instead of inventing another. */
+.film__head {
+  --fk: clamp(0, calc(var(--fcopy) / 0.5), 1);
+  position: absolute;
+  left: 24px;
+  top: 13.3vh; /* 120/900, the heading line of the design frame */
+  width: min(381px, 46vw);
+  font-size: clamp(34px, 3.4vw, 50px);
+  line-height: 1;
+  font-weight: 400;
+  letter-spacing: -0.03em;
+}
+.film__desc {
+  --fk: clamp(0, calc((var(--fcopy) - 0.35) / 0.5), 1);
+  position: absolute;
+  right: 24px;
+  top: 71.9vh; /* 647/900 */
+  width: 305px;
+  font-size: 14px;
+  line-height: 17px;
+  letter-spacing: -0.03em;
+  text-wrap: pretty;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   FINALE — normal flow resumes. Scrolls up OVER the pinned stack, so it needs
+   only to out-stack the fixed layers (film z50, chrome stays above at 70).
+   Geometry from the Figma lower band (1470×1116), as percentages.
+   ═══════════════════════════════════════════════════════════════════════════ */
+.finale {
+  position: relative;
+  z-index: 60;
+  background: #030303;
+  height: 75.92vw; /* 1116/1470 */
+  min-height: 620px;
+  overflow: hidden;
+}
+/* --nk is written per element by src/hero/finale.ts, from that element's own
+   position in the viewport. A single section-wide progress does NOT work here:
+   the finale is in normal flow, so it rides up with the page and every item's
+   reveal was spent before the item was on screen (measured: the label and note
+   reached 100% some 34vh before they cleared the fold). */
+.finale__item {
+  --nk: 0;
+  opacity: var(--nk);
+  transform: translateY(calc((1 - var(--nk)) * 26px));
+}
+.finale__micro {
+  position: absolute;
+  left: 50%;
+  top: 26.3%; /* 293/1116 */
+  translate: -50% 0;
+  width: 221px;
+  font-size: 14px;
+  line-height: 17px;
+  text-align: center;
+  letter-spacing: -0.03em;
+}
+.finale__head {
+  position: absolute;
+  left: 50%;
+  top: 38.1%; /* 425/1116 */
+  translate: -50% 0;
+  width: 74.4vw; /* 1094/1470 */
+  font-size: 10.2vw; /* 150px at 1470 */
+  line-height: 0.8;
+  font-weight: 400;
+  text-align: center;
+  letter-spacing: -0.03em;
+}
+/* The rows trade places on each hop: measured, the two rows sit 9.6vw apart
+   (141px at 1470 wide), so the top pair drops exactly onto the bottom row's
+   line and the bottom pair rises onto the top's. All four columns differ, so
+   nothing collides mid-flight. */
+.finale__mask {
+  --hop: 9.6vw;
+  position: absolute;
+  width: 24.7vw; /* 363/1470; height follows the 1.792 ratio */
+  /* Keyframes own `transform`, so the scroll-in offset uses the individual
+     `translate` property — the two compose instead of overwriting. */
+  translate: 0 calc((1 - var(--nk)) * 26px);
+  transform: none;
+  animation: finale-hop var(--hop-dur, 2.8s) cubic-bezier(0.33, 0, 0.2, 1)
+    var(--hop-delay, 0s) infinite;
+  user-select: none;
+}
+/* Top row falls, bottom row rises. */
+.finale__mask--1, .finale__mask--2 { --hop-to: var(--hop); }
+.finale__mask--3, .finale__mask--4 { --hop-to: calc(var(--hop) * -1); }
+/* Out-of-phase: distinct durations AND delays, so a big amplitude reads as
+   four separate creatures rather than one synchronised carousel. */
+.finale__mask--1 { --hop-dur: 2.9s; --hop-delay: 0.2s; }
+.finale__mask--2 { --hop-dur: 3.4s; --hop-delay: 1.1s; }
+.finale__mask--3 { --hop-dur: 2.6s; --hop-delay: 1.9s; }
+.finale__mask--4 { --hop-dur: 3.7s; --hop-delay: 2.7s; }
+@keyframes finale-hop {
+  0% { transform: translateY(0); }
+  16% { transform: translateY(var(--hop-to)); } /* snap across to the other row */
+  30% { transform: translateY(var(--hop-to)); } /* hang there a beat */
+  46% { transform: translateY(0); } /* snap back */
+  100% { transform: translateY(0); } /* long pause before the next tick */
+}
+.finale__label {
+  position: absolute;
+  left: 24px;
+  bottom: 8.4%; /* 94/1116 above the band bottom, ≈ Figma's 1798 line */
+  font-size: 20px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+.finale__note {
+  position: absolute;
+  right: 24px;
+  bottom: 8.4%;
+  width: 305px;
+  font-size: 14px;
+  line-height: 17px;
+  letter-spacing: -0.03em;
+  text-wrap: pretty;
+}
+/* Footer breathing room: the page used to end the instant the bottom row
+   arrived, so it had no scroll left to animate in. Same colour as the finale,
+   so it reads as space rather than a seam. */
+.finale-runway { height: 30vh; background: #030303; }
+
+@media (prefers-reduced-motion: reduce) {
+  .slide__item, .film__item, .finale__item { transform: none; }
+  .finale__mask { animation: none; translate: 0 0; }
+}
+@media (max-width: 720px) {
+  .slide__chip { display: none; }
+  .slide__desc { width: min(305px, 74vw); }
+  .film__desc { width: min(305px, 74vw); top: auto; bottom: 33px; }
+  .finale { height: auto; min-height: 100vh; padding: 24vh 0 30vh; }
+  .finale__note { width: min(305px, 60vw); }
+}
+
+.menu[aria-expanded='true'] { opacity: 1; }
+
+/* Above the slides, or tuning stops working the moment slide 1 opens. */
+.lil-gui { --width: 300px; z-index: 200 !important; }
+.lil-gui.hidden { display: none; }
+
+#unsupported[hidden] { display: none; }
+#unsupported {
+  position: fixed; inset: 0; z-index: 6;
+  display: flex; flex-direction: column; justify-content: center; gap: 1rem;
+  padding: clamp(1.5rem, 8vw, 6rem);
+  background: var(--bg);
+}
+#unsupported h2 { font-size: clamp(1.6rem, 4vw, 2.4rem); font-weight: 300; letter-spacing: -0.02em; }
+#unsupported p { color: #8a7f79; max-width: 34rem; line-height: 1.6; }
+#unsupported .muted { font-size: 0.85rem; opacity: 0.7; }
+code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: #ff8a3c; }
+
+@media (max-width: 640px) {
+  .menu { top: 28px; }
+}

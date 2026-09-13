@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Particle Field</title>
+    <link rel="stylesheet" href="/src/demo/style.css" />
+  </head>
+  <body>
+    <div id="field" aria-hidden="true"></div>
+
+    <nav class="hud-nav">
+      <a href="/index.html" class="on">Particle Field</a>
+      <span aria-hidden="true">/</span>
+      <a href="/fire.html">Fire Mask</a>
+    </nav>
+
+    <div id="smooth-wrapper">
+      <div id="smooth-content">
+        <section class="panel hero" id="hero">
+          <p class="eyebrow">three.js · points · no post-processing</p>
+          <h1 id="title">Particle Field</h1>
+          <p class="lede" id="lede">
+            One <code>THREE.Points</code> cloud, a procedural sprite, and a CPU solver.
+            No bloom pass, no depth of field, no texture, no model.
+          </p>
+          <p class="hint">Scroll</p>
+        </section>
+
+        <section class="panel" id="arrival">
+          <h2>It arrives</h2>
+          <p>
+            The field dollies in from 106 world units to 16, interpolated in log space so the
+            approach reads as even rather than rushing at the end. Every particle starts as
+            identical fine dust and grows into its own size class on the way in.
+          </p>
+        </section>
+
+        <section class="panel" id="cursor">
+          <h2>It answers the cursor</h2>
+          <p>
+            Move across it. Particles inside the radius are not pushed away with a falloff —
+            they are relocated to sit exactly on the rim of a disc, measured perpendicular to
+            the view axis so the hole stays circular however far the field has rotated.
+            It snaps in four times faster than it relaxes out.
+          </p>
+        </section>
+
+        <section class="panel" id="shapes">
+          <h2>Any shape</h2>
+          <p>
+            The silhouette is a swappable sampler. The superellipse is one implementation;
+            an SVG path is another. Try the shape control, top right.
+          </p>
+        </section>
+
+        <section class="panel last" id="dissolve">
+          <h2>Then it goes</h2>
+          <p>
+            Each particle travels along a fixed random direction while growing and softening,
+            so the cloud evaporates instead of merely flying apart.
+          </p>
+        </section>
+      </div>
+    </div>
+
+    <div id="stats" aria-live="off"></div>
+    <script type="module" src="/src/demo/main.ts"></script>
+  </body>
+</html>
